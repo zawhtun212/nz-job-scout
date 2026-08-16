@@ -7,7 +7,6 @@ app = Flask(__name__)
 
 # Stripe API Key Configuration
 stripe.api_key = os.environ.get("STRIPE_API_KEY", "your_stripe_secret_key")
-STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "your_webhook_secret")
 DB_NAME = "nz_job_saas.db"
 
 def init_db():
@@ -107,23 +106,14 @@ def create_checkout_session():
 
 @app.route('/webhook', methods=['POST'])
 def stripe_webhook():
-    payload = request.data
-    sig_header = request.headers.get('Stripe-Signature')
-    event = None
-
     try:
-        # Webhook signature စစ်ဆေးခြင်း
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, STRIPE_WEBHOOK_SECRET
-        )
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 400
-    except stripe.error.SignatureVerificationError as e:
+        event = request.get_json()
+    except Exception as e:
         return jsonify({'error': str(e)}), 400
 
     # ငွေပေးချေမှု အောင်မြင်သောအခါ (Checkout Session Completed)
-    if event['type'] == 'checkout.session.completed':
-        session = event['data']['object']
+    if event and event.get('type') == 'checkout.session.completed':
+        session = event.get('data', {}).get('object', {})
         
         # Metadata ထဲကနေ telegram_id ကို ယူခြင်း
         metadata = session.get('metadata', {})
