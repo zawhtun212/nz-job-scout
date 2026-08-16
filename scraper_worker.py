@@ -137,7 +137,7 @@ def evaluate_job_match(user_cv, job_description):
         return "MATCH_SCORE: 50\nKEY_MATCHES: N/A\nCOVER_LETTER: N/A"
 
 # --- Main Worker Logic ---
-def run_worker():
+def run_worker_loop():
     print("🚀 Multi-Platform Job Scraper & AI Matcher Started...")
     while True:
         try:
