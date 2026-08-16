@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subscription Status - NZ Job Scout</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 flex items-center justify-center h-screen">
+
+    <div class="max-w-md w-full bg-white shadow-lg rounded-2xl p-8 text-center border border-slate-100">
+        <!-- Success Icon -->
+        <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-emerald-100 mb-6">
+            <svg class="h-8 w-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            </svg>
+        </div>
+
+        <!-- Heading -->
+        <h2 class="text-2xl font-bold text-slate-800 mb-2">Subscription Activated</h2>
+        <p class="text-slate-600 text-sm mb-6">
+            Thank you for your payment. Your account has been successfully upgraded, and your automated job scouting is now active.
+        </p>
+
+        <!-- Details Box -->
+        <div class="bg-slate-50 rounded-xl p-4 mb-6 text-left border border-slate-200">
+            <div class="flex justify-between text-sm mb-2">
+                <span class="text-slate-500">Status:</span>
+                <span class="font-semibold text-emerald-600">Active</span>
+            </div>
+            <div class="flex justify-between text-sm">
+                <span class="text-slate-500">Plan:</span>
+                <span class="font-semibold text-slate-800">NZ Job Scout Pro</span>
+            </div>
+        </div>
+
+        <!-- Action Button -->
+        <button onclick="window.close()" class="w-full bg-slate-900 text-white font-medium py-3 px-4 rounded-xl hover:bg-slate-800 transition duration-200 shadow-sm">
+            Close Window & Return
+        </button>
+    </div>
+
+</body>
+</html>
