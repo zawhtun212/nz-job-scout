@@ -28,6 +28,7 @@ def init_db():
     try:
         cursor.execute("ALTER TABLE users ADD COLUMN user_cv TEXT")
     except sqlite3.OperationalError:
+
         pass
     conn.commit()
     conn.close()
@@ -137,7 +138,7 @@ def stripe_webhook():
                 print(f"Subscription activated for Telegram ID: {telegram_id}")
 
                 # Telegram သို့ အောင်မြင်ကြောင်း မက်ဆေ့ခ်ျ ပို့ခြင်း
-                message = "🎉 ကျေးဇူးတင်ပါတယ်! your NZ Job Scout Pro subscription is now active. တရားဝင် ဂျော့ခ်ျအချက်အလက်များကို ဆက်လက်ပေးပို့သွားပါမည်။"
+                message = "🎉 ကျေးဇူးတင်ပါတယ်! your NZ Job Scout Pro subscription is now active. တရားဝင် Job အချက်အလက်များကို ဆက်လက်ပေးပို့သွားပါမည်။"
                 telegram_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
                 payload_data = {
                     "chat_id": telegram_id,
@@ -154,3 +155,16 @@ def stripe_webhook():
 if __name__ == '__main__':
     init_db()
     app.run(debug=True)
+
+import threading
+from scraper_worker import run_worker_loop  # သင့်ရဲ့ worker loop ဖန်ရှင်နာမည်
+
+def start_background_worker():
+    # Background မှာ အမြဲ Run နေမယ့် Loop
+    worker_thread = threading.Thread(target=run_worker_loop, daemon=True)
+    worker_thread.start()
+
+# Flask App မစတင်ခင် Worker ကို တွဲစတင်ပေးခြင်း
+if __name__ == '__main__':
+    start_background_worker()
+    app.run(host='0.0.0.0', port=10000)
