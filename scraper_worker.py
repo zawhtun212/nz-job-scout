@@ -7,10 +7,15 @@ import os
 
 DB_NAME = "nz_job_saas.db"
 
+# API Keys များကို Environment Variables မှ ရယူခြင်း
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
 def send_telegram_message(telegram_id, message):
+    if not TELEGRAM_BOT_TOKEN:
+        print("Error: TELEGRAM_BOT_TOKEN is missing in environment!")
+        return None
+        
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": telegram_id,
@@ -23,8 +28,9 @@ def send_telegram_message(telegram_id, message):
         return response.json()
     except Exception as e:
         print(f"Error sending message: {e}")
+        return None
 
-# --- 1. SEEK SCRAPER ---
+# --- Scrapers ---
 def scrape_seek(keyword, location):
     formatted_kw = keyword.replace(" ", "-")
     url = f"https://www.seek.co.nz/{formatted_kw}-jobs?where={location}"
@@ -49,7 +55,6 @@ def scrape_seek(keyword, location):
     except:
         return []
 
-# --- 2. TRADE ME SCRAPER ---
 def scrape_trademe(keyword, location):
     formatted_kw = keyword.replace(" ", "-")
     url = f"https://www.trademe.co.nz/a/jobs/{location.lower()}/{formatted_kw}"
@@ -59,7 +64,6 @@ def scrape_trademe(keyword, location):
         if res.status_code != 200: return []
         soup = BeautifulSoup(res.text, "html.parser")
         jobs = []
-        # Trade Me structure အလိုက် card များကို ရှာဖွေခြင်း
         cards = soup.find_all("tg-card", class_="tm-marketplace-card")[:2]
         for card in cards:
             title_elem = card.find("a")
@@ -75,7 +79,6 @@ def scrape_trademe(keyword, location):
     except:
         return []
 
-# --- 3. INDEED SCRAPER ---
 def scrape_indeed(keyword, location):
     url = f"https://nz.indeed.com/jobs?q={keyword.replace(' ', '+')}&l={location.replace(' ', '+')}"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -100,7 +103,6 @@ def scrape_indeed(keyword, location):
     except:
         return []
 
-# --- 4. LINKEDIN SCRAPER (Public Jobs API/Page) ---
 def scrape_linkedin(keyword, location):
     url = f"https://www.linkedin.com/jobs/search?keywords={keyword.replace(' ', '%20')}&location={location.replace(' ', '%20')}"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -128,69 +130,46 @@ def scrape_linkedin(keyword, location):
 def evaluate_job_match(user_cv, job_description):
     try:
         model = genai.GenerativeModel("gemini-1.5-pro")
-        prompt = f"""
-        You are an expert recruitment assistant in New Zealand. 
-        Analyze the following Candidate CV and Job Description.
-        
-        Candidate CV:
-        {user_cv}
-        
-        Job Description:
-        {job_description}
-        
-        Provide your response strictly in the following format:
-        MATCH_SCORE: [Integer between 0 to 100]
-        KEY_MATCHES: [Short summary of why it matches]
-        COVER_LETTER: [A professional, tailored cover letter for this specific job]
-        """
+        prompt = f"Analyze the following Candidate CV and Job Description. \nCV: {user_cv}\nJob: {job_description}\nFormat: MATCH_SCORE (0-100), KEY_MATCHES, COVER_LETTER."
         response = model.generate_content(prompt)
         return response.text
     except:
-        return "MATCH_SCORE: 50\nKEY_MATCHES: Default\nCOVER_LETTER: N/A"
+        return "MATCH_SCORE: 50\nKEY_MATCHES: N/A\nCOVER_LETTER: N/A"
 
+# --- Main Worker Logic ---
 def run_worker():
-    print("Multi-Platform Job Scraper & AI Matcher Started...")
+    print("🚀 Multi-Platform Job Scraper & AI Matcher Started...")
     while True:
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
-        cursor.execute("SELECT telegram_id, job_keywords, location, user_cv FROM users WHERE subscription_status = 'active'")
-        active_users = cursor.fetchall()
-        conn.close()
+        try:
+            conn = sqlite3.connect(DB_NAME)
+            cursor = conn.cursor()
+            cursor.execute("SELECT telegram_id, job_keywords, location, user_cv FROM users WHERE subscription_status = 'active'")
+            active_users = cursor.fetchall()
+            conn.close()
 
-        for user in active_users:
-            telegram_id, keywords, location, user_cv = user
-            if not keywords: continue
-            loc = location if location else "New Zealand"
+            print(f"👥 Found {len(active_users)} active user(s) to process.")
 
-            # Platforms (၄) ခုစလုံးမှ တစ်ပြိုင်နက် ဆွဲထုတ်ခြင်း
-            all_jobs = []
-            all_jobs.extend(scrape_seek(keywords, loc))
-            all_jobs.extend(scrape_trademe(keywords, loc))
-            all_jobs.extend(scrape_indeed(keywords, loc))
-            all_jobs.extend(scrape_linkedin(keywords, loc))
+            for user in active_users:
+                telegram_id, keywords, location, user_cv = user
+                if not keywords: continue
+                loc = location if location else "New Zealand"
 
-            for job in all_jobs:
-                if user_cv:
-                    analysis = evaluate_job_match(user_cv, job['description'])
-                    message = (
-                        f"🚨 *[{job['platform']}] New Matched Job!* \n\n"
-                        f"*Position:* {job['title']}\n"
-                        f"*Company:* {job['company']}\n"
-                        f"[View Job Link]({job['url']})\n\n"
-                        f"*AI Analysis & Cover Letter:*\n{analysis}"
-                    )
-                else:
-                    message = (
-                        f"🔍 *[{job['platform']}] New Job Found!* \n\n"
-                        f"*Position:* {job['title']}\n"
-                        f"*Company:* {job['company']}\n"
-                        f"[View Job Link]({job['url']})"
-                    )
-                
-                send_telegram_message(telegram_id, message)
-                time.sleep(2)
+                print(f"🔍 Scraping for user {telegram_id}...")
+                all_jobs = scrape_seek(keywords, loc) + scrape_trademe(keywords, loc) + scrape_indeed(keywords, loc) + scrape_linkedin(keywords, loc)
+                print(f"✅ Found {len(all_jobs)} total jobs.")
 
-        print("Waiting for the next check cycle (60 minutes)...")
+                for job in all_jobs:
+                    analysis = evaluate_job_match(user_cv, job['description']) if user_cv else "Job details found."
+                    message = f"🚨 *[{job['platform']}] New Match!*\n\n*Position:* {job['title']}\n*Company:* {job['company']}\n[View Job]({job['url']})\n\n*Analysis:*\n{analysis}"
+                    
+                    telegram_res = send_telegram_message(telegram_id, message)
+                    print(f"🤖 Telegram status for {telegram_id}: {telegram_res}")
+                    time.sleep(2)
+
+        except Exception as e:
+            print(f"❌ Error in worker cycle: {e}")
+
+        print("💤 Waiting for the next check cycle (60 minutes)...")
         time.sleep(3600)
 
 if __name__ == "__main__":
