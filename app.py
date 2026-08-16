@@ -22,6 +22,13 @@ def init_db():
             subscription_status TEXT DEFAULT 'inactive'
         )
     ''')
+    
+    # Table ဟောင်းတွင် user_cv column မပါပါက အလိုအလျောက် ထည့်သွင်းပေးခြင်း
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN user_cv TEXT")
+    except sqlite3.OperationalError:
+        pass # Column ရှိပြီးသားဆိုလျှင် ကျော်သွားမည်
+
     conn.commit()
     conn.close()
 
