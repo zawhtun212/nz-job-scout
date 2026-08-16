@@ -2,6 +2,7 @@ import os
 import sqlite3
 import stripe
 import requests
+import google.generativeai as genai
 from flask import Flask, request, jsonify, render_template
 from werkzeug.utils import secure_filename
 from pypdf import PdfReader
@@ -13,12 +14,15 @@ UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
+# API Keys များကို Environment Variables မှ ရယူခြင်း
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("Telegram_Bot_Token")
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     with conn:
+        # Table အရင်ရှိမရှိ စစ်ဆေးခြင်း
         conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -29,6 +33,17 @@ def init_db():
                 subscription_status TEXT
             )
         """)
+        
+        # Column အဟောင်းများအတွက် Safe Migration (Render Error မတက်စေရန်)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(users)")
+        columns = [col[1] for col in cursor.fetchall()]
+        
+        if 'cv_text' not in columns:
+            conn.execute("ALTER TABLE users ADD COLUMN cv_text TEXT")
+        if 'subscription_status' not in columns:
+            conn.execute("ALTER TABLE users ADD COLUMN subscription_status TEXT")
+            
     conn.close()
 
 init_db()
@@ -50,6 +65,20 @@ def extract_text_from_file(file_path, filename):
         print(f"Error extracting text: {e}")
     return text
 
+def send_telegram_message(telegram_id, message):
+    if not TELEGRAM_BOT_TOKEN or not telegram_id:
+        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": telegram_id,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"Telegram error: {e}")
+
 @app.route("/")
 def home():
     return render_template("index.html")
@@ -68,7 +97,7 @@ def register_user():
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(file_path)
 
-    # Extract text from PDF or Word
+    # PDF သို့မဟုတ် Word ဖိုင်မှ စာသားများ ထုတ်ယူခြင်း
     cv_text = extract_text_from_file(file_path, filename)
 
     try:
@@ -82,3 +111,70 @@ def register_user():
         return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
+
+@app.route("/create-checkout-session", methods=["POST"])
+def create_checkout_session():
+    try:
+        data = request.json
+        telegram_id = data.get("telegram_id")
+        host_url = request.host_url.rstrip('/')
+
+        checkout_session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=[{
+                'price_data': {
+                    'currency': 'nzd',
+                    'product_data': {
+                        'name': 'NZ Job Scout Subscription',
+                        'description': 'Monthly automated job alert service',
+                    },
+                    'unit_amount': 1500, # 15.00 NZD
+                },
+                'quantity': 1,
+            }],
+            mode='payment',
+            success_url=f'{host_url}/success?session_id={{CHECKOUT_SESSION_ID}}',
+            cancel_url=f'{host_url}/',
+            metadata={
+                'telegram_id': telegram_id
+            }
+        )
+        return jsonify({'checkout_url': checkout_session.url})
+    except Exception as e:
+        return jsonify(error=str(e)), 400
+
+@app.route("/webhook", methods=["POST"])
+def stripe_webhook():
+    event = None
+    try:
+        event = request.json
+    except Exception as e:
+        return jsonify(success=False), 400
+
+    if event and event.get('type') == 'checkout.session.completed':
+        session = event.get('data', {}).get('object', {})
+        metadata = session.get('metadata', {})
+        telegram_id = metadata.get('telegram_id')
+
+        if telegram_id:
+            conn = sqlite3.connect(DB_NAME)
+            with conn:
+                conn.execute("""
+                    UPDATE users 
+                    SET subscription_status = 'active' 
+                    WHERE telegram_id = ?
+                """, (telegram_id,))
+            conn.close()
+
+            # ငွေပေးချေမှု အောင်မြင်ကြောင်း Telegram သို့ အသိပေးခြင်း
+            send_telegram_message(telegram_id, "🎉 ငွေပေးချေမှု အောင်မြင်ပါပြီ! သင့်ရဲ့ NZ Job Scout subscription ယခု အလုပ်လုပ်နေပါပြီ။ Seek, Indeed, TradeMe နှင့် LinkedIn တို့မှ ကိုက်ညီသော အလုပ်များကို တင်ပေးပါမည်။")
+
+    return jsonify(success=True)
+
+@app.route("/success")
+def success():
+    return "<h3>Payment successful! Your subscription is now active. You can close this window.</h3>"
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
