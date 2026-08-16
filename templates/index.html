@@ -54,7 +54,6 @@
 
                         <div class="d-grid gap-2">
                             <button type="submit" class="btn btn-primary btn-custom btn-lg">
-                                <script></script>
                                 <i class="fas fa-rocket me-2"></i> Save Profile & Proceed to Subscription (15 NZD/mo)
                             </button>
                         </div>
@@ -94,7 +93,8 @@
                     if(stripeData.checkout_url) {
                         window.location.href = stripeData.checkout_url;
                     } else {
-                        alert('Error creating checkout session.');
+                        // Error အစစ်အမှန်ကို မျက်နှာပြင်ပေါ်တွင် ဖော်ပြပေးရန်
+                        alert('Error: ' + (stripeData.error || 'Unknown error creating checkout session'));
                     }
                 } else {
                     alert('Error saving profile: ' + userData.message);
