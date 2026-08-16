@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NZ Job Scout - Register</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f4f9; margin: 0; padding: 50px; display: flex; justify-content: center; align-items: center; }
+        .container { background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1); width: 100%; max-width: 400px; }
+        h2 { margin-bottom: 20px; color: #333; }
+        label { font-weight: bold; color: #555; }
+        input { width: 100%; padding: 10px; margin-top: 5px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; background-color: #007bff; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>Job Alert Subscription</h2>
+        <form id="registerForm" onsubmit="return false;">
+            <label for="telegram_id">Telegram ID:</label>
+            <input type="text" id="telegram_id" placeholder="ဥပမာ - @your_telegram_id" required>
+
+            <label for="job_keywords">Job Keywords:</label>
+            <input type="text" id="job_keywords" placeholder="ဥပမာ - Python, Developer" required>
+
+            <label for="location">Location:</label>
+            <input type="text" id="location" placeholder="ဥပမာ - Auckland" required>
+
+            <button type="button" id="submitBtn">Register & Proceed to Payment</button>
+        </form>
+    </div>
+
+    <script>
+        document.getElementById("submitBtn").addEventListener("click", async function() {
+            const data = {
+                telegram_id: document.getElementById("telegram_id").value,
+                job_keywords: document.getElementById("job_keywords").value,
+                location: document.getElementById("location").value
+            };
+
+            if (!data.telegram_id || !data.job_keywords || !data.location) {
+                alert("ကျေးဇူးပြု၍ အချက်အလက်များအားလုံး ဖြည့်ပါ။");
+                return;
+            }
+
+            try {
+                // 1. Database သို့ User အချက်အလက် ပို့ခြင်း
+                const regResponse = await fetch("/users", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(data)
+                });
+
+                if (!regResponse.ok) {
+                    alert("Registration failed.");
+                    return;
+                }
+
+                // 2. Stripe Checkout Session ဖန်တီးရန် ခေါ်ဆိုခြင်း
+                const stripeResponse = await fetch("/create-checkout-session", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ telegram_id: data.telegram_id })
+                });
+
+                const result = await stripeResponse.json();
+                
+                if (result.checkout_url) {
+                    // Stripe ငွေပေးချေမှု စာမျက်နှာသို့ သွားရန်
+                    window.location.href = result.checkout_url;
+                } else {
+                    alert("Error: " + (result.error || "Could not redirect to Stripe"));
+                }
+            } catch (error) {
+                console.error("Error:", error);
+                alert("Connection failed! Backend သို့ ချိတ်ဆက်၍ မရပါ။");
+            }
+        });
+    </script>
+
+</body>
+</html>
