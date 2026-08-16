@@ -5,3 +5,4 @@ google-generativeai
 pypdf
 python-docx
 werkzeug
+gunicorn
