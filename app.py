@@ -7,6 +7,7 @@ app = Flask(__name__)
 
 # Stripe API Key Configuration
 stripe.api_key = os.environ.get("STRIPE_API_KEY", "your_stripe_secret_key")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "your_webhook_secret")
 DB_NAME = "nz_job_saas.db"
 
 def init_db():
@@ -103,6 +104,48 @@ def create_checkout_session():
         return jsonify({'checkout_url': checkout_session.url})
     except Exception as e:
         return jsonify({'error': str(e)}), 400
+
+@app.route('/webhook', methods=['POST'])
+def stripe_webhook():
+    payload = request.data
+    sig_header = request.headers.get('Stripe-Signature')
+    event = None
+
+    try:
+        # Webhook signature စစ်ဆေးခြင်း
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, STRIPE_WEBHOOK_SECRET
+        )
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except stripe.error.SignatureVerificationError as e:
+        return jsonify({'error': str(e)}), 400
+
+    # ငွေပေးချေမှု အောင်မြင်သောအခါ (Checkout Session Completed)
+    if event['type'] == 'checkout.session.completed':
+        session = event['data']['object']
+        
+        # Metadata ထဲကနေ telegram_id ကို ယူခြင်း
+        metadata = session.get('metadata', {})
+        telegram_id = metadata.get('telegram_id')
+
+        if telegram_id:
+            try:
+                conn = sqlite3.connect(DB_NAME)
+                cursor = conn.cursor()
+                # Database ထဲတွင် အဆိုပါ telegram_id ၏ status ကို active သို့ ပြောင်းခြင်း
+                cursor.execute('''
+                    UPDATE users 
+                    SET subscription_status = 'active' 
+                    WHERE telegram_id = ?
+                ''', (telegram_id,))
+                conn.commit()
+                conn.close()
+                print(f"Subscription activated for Telegram ID: {telegram_id}")
+            except Exception as e:
+                print(f"Database error updating subscription: {e}")
+
+    return jsonify({'status': 'success'}), 200
 
 if __name__ == '__main__':
     init_db()
