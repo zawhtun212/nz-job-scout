@@ -20,7 +20,6 @@ itsdangerous==2.2.0
 Jinja2==3.1.6
 llvmlite==0.44.0
 MarkupSafe==3.0.3
-metatrader5==5.0.5735
 numba==0.61.2
 numpy==2.2.6
 pandas==3.0.5
