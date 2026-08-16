@@ -1,3 +1,4 @@
+import os
 import sqlite3
 import stripe
 from flask import Flask, request, jsonify, render_template
@@ -5,8 +6,8 @@ from flask import Flask, request, jsonify, render_template
 app = Flask(__name__)
 DB_NAME = "nz_job_saas.db"
 
-# သင့်ရဲ့ Stripe Secret Key အမှန်ကို ထည့်ပါ
-stripe.api_key = "sk_test_..." 
+# Environment Variable မှ Stripe API Key ကို လုံခြုံစွာ ခေါ်ယူခြင်း
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
@@ -37,7 +38,7 @@ def register_user():
             conn.execute("""
                 INSERT OR REPLACE INTO users (telegram_id, job_keywords, location, subscription_status)
                 VALUES (?, ?, ?, ?)
-            """, (data['telegram_id'], data['job_keywords'], data['location'], "pending"))
+            """, (data.get('telegram_id'), data.get('job_keywords'), data.get('location'), "pending"))
         conn.close()
         return jsonify({"status": "success"})
     except Exception as e:
@@ -48,6 +49,9 @@ def create_checkout_session():
     try:
         data = request.json
         telegram_id = data.get("telegram_id")
+
+        # Render သို့မဟုတ် Local အလိုက် Domain ကို အလိုအလျောက် ရယူရန်
+        host_url = request.host_url.rstrip('/')
 
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
@@ -63,8 +67,8 @@ def create_checkout_session():
                 'quantity': 1,
             }],
             mode='payment',
-            success_url='http://127.0.0.1:5000/success?session_id={CHECKOUT_SESSION_ID}',
-            cancel_url='http://127.0.0.1:5000/',
+            success_url=f'{host_url}/success?session_id={{CHECKOUT_SESSION_ID}}',
+            cancel_url=f'{host_url}/',
             metadata={
                 'telegram_id': telegram_id
             }
@@ -104,4 +108,5 @@ def success():
     return "<h3>Payment successful! Your subscription is now active.</h3>"
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
