@@ -3,82 +3,106 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NZ Job Scout - Register</title>
+    <title>NZ Job Scout | AI-Powered Job Matcher & SaaS</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { font-family: Arial, sans-serif; background-color: #f4f4f9; margin: 0; padding: 50px; display: flex; justify-content: center; align-items: center; }
-        .container { background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1); width: 100%; max-width: 400px; }
-        h2 { margin-bottom: 20px; color: #333; }
-        label { font-weight: bold; color: #555; }
-        input { width: 100%; padding: 10px; margin-top: 5px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-        button { width: 100%; padding: 10px; background-color: #007bff; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; }
-        button:hover { background-color: #0056b3; }
+        body { background-color: #f8f9fa; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .hero-section { background: linear-gradient(135deg, #0d6efd, #0dcaf0); color: white; padding: 40px 0; border-radius: 0 0 20px 20px; }
+        .card { border: none; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        .btn-custom { padding: 10px 25px; font-weight: 600; border-radius: 50px; }
     </style>
 </head>
 <body>
 
-    <div class="container">
-        <h2>Job Alert Subscription</h2>
-        <form id="registerForm" onsubmit="return false;">
-            <label for="telegram_id">Telegram ID:</label>
-            <input type="text" id="telegram_id" placeholder="ဥပမာ - @your_telegram_id" required>
+    <div class="hero-section text-center mb-5">
+        <div class="container">
+            <h1><i class="fas fa-briefcase me-2"></i> NZ Job Scout AI</h1>
+            <p class="lead">Automated Job Scraping, Smart Matching & Custom Cover Letters straight to your Telegram</p>
+        </div>
+    </div>
 
-            <label for="job_keywords">Job Keywords:</label>
-            <input type="text" id="job_keywords" placeholder="ဥပမာ - Python, Developer" required>
+    <div class="container mb-5">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="card p-4 p-md-5">
+                    <h3 class="mb-4 text-secondary"><i class="fas fa-user-edit me-2"></i> Candidate Profile & Preferences</h3>
+                    
+                    <form id="jobForm">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Telegram ID / Chat ID</label>
+                            <input type="text" class="form-control" id="telegram_id" placeholder="e.g., 123456789" required>
+                            <div class="form-text">Your Telegram ID to receive instant alerts and matching scores.</div>
+                        </div>
 
-            <label for="location">Location:</label>
-            <input type="text" id="location" placeholder="ဥပမာ - Auckland" required>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-bold">Job Keywords / Title</label>
+                                <input type="text" class="form-control" id="job_keywords" placeholder="e.g., Desktop Support, Python Developer" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-bold">Location (New Zealand)</label>
+                                <input type="text" class="form-control" id="location" placeholder="e.g., Auckland, Wellington" required>
+                            </div>
+                        </div>
 
-            <button type="button" id="submitBtn">Register & Proceed to Payment</button>
-        </form>
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">Upload Resume / CV (.pdf, .doc, .docx)</label>
+                            <input type="file" class="form-control" id="cv_file" accept=".pdf,.doc,.docx" required>
+                            <div class="form-text">Upload your professional CV file for AI matching and cover letter generation.</div>
+                        </div>
+
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary btn-custom btn-lg">
+                                <i class="fas fa-rocket me-2"></i> Save Profile & Proceed to Subscription (15 NZD/mo)
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
-        document.getElementById("submitBtn").addEventListener("click", async function() {
-            const data = {
-                telegram_id: document.getElementById("telegram_id").value,
-                job_keywords: document.getElementById("job_keywords").value,
-                location: document.getElementById("location").value
-            };
-
-            if (!data.telegram_id || !data.job_keywords || !data.location) {
-                alert("ကျေးဇူးပြု၍ အချက်အလက်များအားလုံး ဖြည့်ပါ။");
-                return;
-            }
+        document.getElementById('jobForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            formData.append('telegram_id', document.getElementById('telegram_id').value);
+            formData.append('job_keywords', document.getElementById('job_keywords').value);
+            formData.append('location', document.getElementById('location').value);
+            formData.append('cv_file', document.getElementById('cv_file').files[0]);
 
             try {
-                // 1. Database သို့ User အချက်အလက် ပို့ခြင်း
-                const regResponse = await fetch("/users", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(data)
+                // 1. Save User Profile & Upload CV File
+                const userRes = await fetch('/users', {
+                    method: 'POST',
+                    body: formData
                 });
+                const userData = await userRes.json();
 
-                if (!regResponse.ok) {
-                    alert("Registration failed.");
-                    return;
-                }
+                if(userData.status === 'success') {
+                    // 2. Create Stripe Checkout Session
+                    const stripeRes = await fetch('/create-checkout-session', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ telegram_id: document.getElementById('telegram_id').value })
+                    });
+                    const stripeData = await stripeRes.json();
 
-                // 2. Stripe Checkout Session ဖန်တီးရန် ခေါ်ဆိုခြင်း
-                const stripeResponse = await fetch("/create-checkout-session", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ telegram_id: data.telegram_id })
-                });
-
-                const result = await stripeResponse.json();
-                
-                if (result.checkout_url) {
-                    // Stripe ငွေပေးချေမှု စာမျက်နှာသို့ သွားရန်
-                    window.location.href = result.checkout_url;
+                    if(stripeData.checkout_url) {
+                        window.location.href = stripeData.checkout_url;
+                    } else {
+                        alert('Error creating checkout session.');
+                    }
                 } else {
-                    alert("Error: " + (result.error || "Could not redirect to Stripe"));
+                    alert('Error saving profile: ' + userData.message);
                 }
-            } catch (error) {
-                console.error("Error:", error);
-                alert("Connection failed! Backend သို့ ချိတ်ဆက်၍ မရပါ။");
+            } catch (err) {
+                console.error(err);
+                alert('Something went wrong!');
             }
         });
     </script>
-
 </body>
 </html>
