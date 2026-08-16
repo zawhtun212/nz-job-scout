@@ -6,3 +6,4 @@ pypdf
 python-docx
 werkzeug
 gunicorn
+beautifulsoup4
