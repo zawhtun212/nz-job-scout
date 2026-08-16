@@ -2,12 +2,14 @@ from flask import Flask, render_template, request, jsonify
 import sqlite3
 import os
 import stripe
+import requests
 
 app = Flask(__name__)
 
-# Stripe API Key Configuration
-stripe.api_key = os.environ.get("STRIPE_API_KEY", "your_stripe_secret_key")
+# Stripe & Telegram API Key Configuration
+stripe.api_key = os.environ.get("STRIPE_API_KEY", "sk_test_51U4dsARsY9pyx48SiKwb9uf48pewo7OVhBijGippD1q5RufnbXL9g1Jci1Okqq36q1LjQpEV3HvvNHlYzQgapdKK004uvCslZH")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "whsec_1hF3Jy80A9x1dANaNJdlmlSoAu5eWjOK")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8746508324:AAG2tZBW8U5ZKqzwci20W2b3SPwRs1MARI4")
 DB_NAME = "nz_job_saas.db"
 
 def init_db():
@@ -133,8 +135,19 @@ def stripe_webhook():
                 conn.commit()
                 conn.close()
                 print(f"Subscription activated for Telegram ID: {telegram_id}")
+
+                # Telegram သို့ အောင်မြင်ကြောင်း မက်ဆေ့ခ်ျ ပို့ခြင်း
+                message = "🎉 ကျေးဇူးတင်ပါတယ်! your NZ Job Scout Pro subscription is now active. တရားဝင် ဂျော့ခ်ျအချက်အလက်များကို ဆက်လက်ပေးပို့သွားပါမည်။"
+                telegram_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+                payload_data = {
+                    "chat_id": telegram_id,
+                    "text": message
+                }
+                res = requests.post(telegram_url, json=payload_data)
+                print(f"Telegram Notification Response: {res.status_code}")
+
             except Exception as e:
-                print(f"Database error updating subscription: {e}")
+                print(f"Database error or Telegram notification error: {e}")
 
     return jsonify({'status': 'success'}), 200
 
