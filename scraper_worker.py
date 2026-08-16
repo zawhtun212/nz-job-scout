@@ -173,4 +173,4 @@ def run_worker():
         time.sleep(3600)
 
 if __name__ == "__main__":
-    run_worker()
+    run_worker_loop()
