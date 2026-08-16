@@ -178,3 +178,9 @@ def success():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
+
+
+@app.route("/test-telegram/<telegram_id>")
+def test_telegram(telegram_id):
+    send_telegram_message(telegram_id, "🧪 ဒါက သင့်ဆီ တိုက်ရိုက်ပို့တဲ့ Test Message ပါ။ Telegram Bot အလုပ်လုပ်ကြောင်း အတည်ပြုချက်ပါ။")
+    return f"Test message sent to {telegram_id}! Please check your Telegram."
