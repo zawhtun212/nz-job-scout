@@ -71,8 +71,15 @@ def save_user():
 
 @app.route('/create-checkout-session', methods=['POST'])
 def create_checkout_session():
-    data = request.get_json()
-    telegram_id = data.get('telegram_id')
+    # JSON သို့မဟုတ် Form Data မည်သည့် ပုံစံဖြင့် လာသည်ဖြစ်စေ ဖမ်းယူနိုင်ရန်
+    if request.is_json:
+        data = request.get_json()
+        telegram_id = data.get('telegram_id') if data else None
+    else:
+        telegram_id = request.form.get('telegram_id')
+
+    if not telegram_id:
+        return jsonify({'error': 'Telegram ID is missing'}), 400
 
     try:
         checkout_session = stripe.checkout.Session.create(
