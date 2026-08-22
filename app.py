@@ -58,7 +58,11 @@ def save_user():
 
     cv_text = ""
     if cv_file:
-        cv_text = cv_file.read().decode('utf-8', errors='ignore')
+        # Binary data ကို decode လုပ်ပြီးမှ Null bytes (\x00) များကို ဖယ်ရှားခြင်း
+        raw_bytes = cv_file.read()
+        cv_text = raw_bytes.decode('utf-8', errors='ignore')
+        # PostgreSQL က လက်မခံသော NUL characters များကို ဖယ်ရှားပေးခြင်း
+        cv_text = cv_text.replace('\x00', '')
 
     try:
         conn = get_db_connection()
