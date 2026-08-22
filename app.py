@@ -1,8 +1,10 @@
 from flask import Flask, render_template, request, jsonify
-import sqlite3
 import os
 import stripe
 import requests
+import psycopg2
+import threading
+from scraper_worker import run_worker_loop
 
 app = Flask(__name__)
 
@@ -10,28 +12,34 @@ app = Flask(__name__)
 stripe.api_key = os.environ.get("STRIPE_API_KEY", "sk_test_51U4dsARsY9pyx48SiKwb9uf48pewo7OVhBijGippD1q5RufnbXL9g1Jci1Okqq36q1LjQpEV3HvvNHlYzQgapdKK004uvCslZH")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "whsec_1hF3Jy80A9x1dANaNJdlmlSoAu5eWjOK")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8746508324:AAG2tZBW8U5ZKqzwci20W2b3SPwRs1MARI4")
-DB_NAME = "nz_job_saas.db"
+
+# Supabase PostgreSQL Connection URL ကို Render Environment Variable မှ ရယူခြင်း
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+def get_db_connection():
+    return psycopg2.connect(DATABASE_URL)
 
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            telegram_id TEXT UNIQUE,
-            job_keywords TEXT,
-            location TEXT,
-            user_cv TEXT,
-            subscription_status TEXT DEFAULT 'inactive'
-        )
-    ''')
     try:
-        cursor.execute("ALTER TABLE users ADD COLUMN user_cv TEXT")
-    except sqlite3.OperationalError:
-
-        pass
-    conn.commit()
-    conn.close()
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # PostgreSQL syntax ဖြင့် Table တည်ဆောက်ခြင်း
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                telegram_id TEXT UNIQUE,
+                job_keywords TEXT,
+                location TEXT,
+                user_cv TEXT,
+                subscription_status TEXT DEFAULT 'inactive'
+            )
+        ''')
+        conn.commit()
+        cursor.close()
+        conn.close()
+        print("✅ PostgreSQL Database initialized successfully.")
+    except Exception as e:
+        print(f"❌ Database initialization error: {e}")
 
 @app.route('/')
 def index():
@@ -53,21 +61,23 @@ def save_user():
         cv_text = cv_file.read().decode('utf-8', errors='ignore')
 
     try:
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_db_connection()
         cursor = conn.cursor()
+        # PostgreSQL Upsert Query (ON CONFLICT)
         cursor.execute('''
             INSERT INTO users (telegram_id, job_keywords, location, user_cv, subscription_status)
-            VALUES (?, ?, ?, ?, 'inactive')
-            ON CONFLICT(telegram_id) DO UPDATE SET
-            job_keywords=excluded.job_keywords,
-            location=excluded.location,
-            user_cv=excluded.user_cv
+            VALUES (%s, %s, %s, %s, 'inactive')
+            ON CONFLICT (telegram_id) DO UPDATE SET
+            job_keywords = EXCLUDED.job_keywords,
+            location = EXCLUDED.location,
+            user_cv = EXCLUDED.user_cv
         ''', (telegram_id, job_keywords, location, cv_text))
         conn.commit()
+        cursor.close()
         conn.close()
         return jsonify({'status': 'success', 'message': 'Profile saved successfully'})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)})
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/create-checkout-session', methods=['POST'])
 def create_checkout_session():
@@ -113,9 +123,9 @@ def stripe_webhook():
         event = stripe.Webhook.construct_event(
             payload, sig_header, STRIPE_WEBHOOK_SECRET
         )
-    except ValueError as e:
+    except ValueError:
         return jsonify({'error': 'Invalid payload'}), 400
-    except stripe.error.SignatureVerificationError as e:
+    except stripe.error.SignatureVerificationError:
         return jsonify({'error': 'Invalid signature'}), 400
 
     if event['type'] == 'checkout.session.completed':
@@ -126,14 +136,15 @@ def stripe_webhook():
 
         if telegram_id:
             try:
-                conn = sqlite3.connect(DB_NAME)
+                conn = get_db_connection()
                 cursor = conn.cursor()
                 cursor.execute('''
                     UPDATE users 
                     SET subscription_status = 'active' 
-                    WHERE telegram_id = ?
-                ''', (telegram_id,))
+                    WHERE telegram_id = %s
+                ''', (str(telegram_id),))
                 conn.commit()
+                cursor.close()
                 conn.close()
                 print(f"Subscription activated for Telegram ID: {telegram_id}")
 
@@ -152,19 +163,12 @@ def stripe_webhook():
 
     return jsonify({'status': 'success'}), 200
 
-if __name__ == '__main__':
-    init_db()
-    app.run(debug=True)
-
-import threading
-from scraper_worker import run_worker_loop  # သင့်ရဲ့ worker loop ဖန်ရှင်နာမည်
-
 def start_background_worker():
-    # Background မှာ အမြဲ Run နေမယ့် Loop
     worker_thread = threading.Thread(target=run_worker_loop, daemon=True)
     worker_thread.start()
 
-# Flask App မစတင်ခင် Worker ကို တွဲစတင်ပေးခြင်း
 if __name__ == '__main__':
+    init_db()
     start_background_worker()
-    app.run(host='0.0.0.0', port=10000)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
