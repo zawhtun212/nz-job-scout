@@ -1,11 +1,15 @@
 from bs4 import BeautifulSoup
 import google.generativeai as genai
 import requests
-import sqlite3
+import psycopg2
 import time
 import os
 
-DB_NAME = "nz_job_saas.db"
+# Supabase PostgreSQL Connection URL ကို Render Environment Variable မှ ရယူခြင်း
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+def get_db_connection():
+    return psycopg2.connect(DATABASE_URL)
 
 # API Keys များကို Environment Variables မှ ရယူခြင်း
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
@@ -136,15 +140,16 @@ def evaluate_job_match(user_cv, job_description):
     except:
         return "MATCH_SCORE: 50\nKEY_MATCHES: N/A\nCOVER_LETTER: N/A"
 
-# --- Main Worker Logic ---
+# --- Main Worker Loop ---
 def run_worker_loop():
-    print("🚀 Multi-Platform Job Scraper & AI Matcher Started...")
+    print("🚀 Multi-Platform Job Scraper & AI Matcher Started with PostgreSQL...")
     while True:
         try:
-            conn = sqlite3.connect(DB_NAME)
+            conn = get_db_connection()
             cursor = conn.cursor()
             cursor.execute("SELECT telegram_id, job_keywords, location, user_cv FROM users WHERE subscription_status = 'active'")
             active_users = cursor.fetchall()
+            cursor.close()
             conn.close()
 
             print(f"👥 Found {len(active_users)} active user(s) to process.")
