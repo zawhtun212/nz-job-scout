@@ -1,9 +1,11 @@
 from flask import Flask, render_template, request, jsonify, redirect
+from scheduler import start_scheduler
 import os
 import stripe
 import requests
 import psycopg2
 import threading
+import datetime
 from scraper_worker import run_worker_loop
 
 app = Flask(__name__)
@@ -12,6 +14,7 @@ app = Flask(__name__)
 stripe.api_key = os.environ.get("STRIPE_API_KEY", "sk_test_51U4dsARsY9pyx48SiKwb9uf48pewo7OVhBijGippD1q5RufnbXL9g1Jci1Okqq36q1LjQpEV3HvvNHlYzQgapdKK004uvCslZH")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "whsec_1hF3Jy80A9x1dANaNJdlmlSoAu5eWjOK")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8746508324:AAG2tZBW8U5ZKqzwci20W2b3SPwRs1MARI4")
+PRIVATE_CHANNEL_ID = "-1004349902452"
 
 # Supabase PostgreSQL Connection URL ကို Render Environment Variable မှ ရယူခြင်း
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -30,7 +33,8 @@ def init_db():
                 job_keywords TEXT,
                 location TEXT,
                 user_cv TEXT,
-                subscription_status TEXT DEFAULT 'inactive'
+                subscription_status TEXT DEFAULT 'inactive',
+                subscription_expires_at TIMESTAMP WITH TIME ZONE
             )
         ''')
         conn.commit()
@@ -133,13 +137,17 @@ def stripe_webhook():
 
         if telegram_id:
             try:
+                # သက်တမ်း ၃၀ ရက် သတ်မှတ်ခြင်း
+                expires_at = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=30)).isoformat()
+                
                 conn = get_db_connection()
                 cursor = conn.cursor()
                 cursor.execute('''
                     UPDATE users 
-                    SET subscription_status = 'active' 
+                    SET subscription_status = 'active',
+                        subscription_expires_at = %s
                     WHERE telegram_id = %s
-                ''', (str(telegram_id),))
+                ''', (expires_at, str(telegram_id)))
                 conn.commit()
                 cursor.close()
                 conn.close()
@@ -154,12 +162,31 @@ def stripe_webhook():
                     "parse_mode": "Markdown"
                 })
 
-                # Telegram သို့ အောင်မြင်ကြောင်း မက်ဆေ့ခ်ျ ပို့ခြင်း
-                message = "🎉 ကျေးဇူးတင်ပါတယ်! Your NZ Job Scout Pro subscription is now active. တရားဝင် Job အချက်အလက်များကို ဆက်လက်ပေးပို့သွားပါမည်။"
+                # Private Channel အတွက် တစ်ကြိမ်သုံး Invite Link ထုတ်ယူခြင်း
+                invite_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/createChatInviteLink"
+                invite_payload = {
+                    "chat_id": PRIVATE_CHANNEL_ID,
+                    "member_limit": 1,
+                    "expire_date": int((datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=24)).timestamp())
+                }
+                invite_res = requests.post(invite_url, json=invite_payload).json()
+                
+                channel_invite_link = ""
+                if invite_res.get("ok"):
+                    channel_invite_link = invite_res["result"]["invite_link"]
+
+                # User သို့ Welcome မက်ဆေ့ချ်နှင့် Invite Link ပို့ခြင်း
+                message = (
+                    "🎉 ကျေးဇူးတင်ပါတယ်! Your NZ Job Scout Pro subscription is now active.\n\n"
+                    "အောက်ပါ သီးသန့်လင့်ခ်ကိုနှိပ်၍ ကျွန်ုပ်တို့၏ Paid Telegram Channel ထဲသို့ ဝင်ရောက်နိုင်ပါပြီ - \n\n"
+                    f"🔗 {channel_invite_link}\n\n"
+                    "တရားဝင် Job အချက်အလက်များကို ဆက်လက်ပေးပို့သွားပါမည်။"
+                )
                 telegram_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
                 payload_data = {
                     "chat_id": telegram_id,
-                    "text": message
+                    "text": message,
+                    "parse_mode": "Markdown"
                 }
                 res = requests.post(telegram_url, json=payload_data)
                 print(f"Telegram Notification Response: {res.status_code}")
@@ -175,6 +202,7 @@ def start_background_worker():
 
 if __name__ == '__main__':
     init_db()
+    start_scheduler()
     start_background_worker()
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)

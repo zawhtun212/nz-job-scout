@@ -9,3 +9,4 @@ python-docx
 werkzeug
 gunicorn
 beautifulsoup4
+APScheduler

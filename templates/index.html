@@ -39,10 +39,15 @@
                                 1. Open Telegram and search for <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a><br>
                                 2. Send the <code>/start</code> command to get your numeric ID.
                             </div>
+
+                            <!-- Important Notice for Telegram Bot Start -->
+                            <div class="form-text text-info mt-2 p-2 bg-light border border-info rounded" style="font-size: 0.85rem;">
+                                ℹ️ <b>Important Notice:</b> After payment, the Bot will automatically send your Paid Channel link. 
+                                Please make sure to start our Telegram Bot (<a href="https://t.me/NZJobScout_bot" target="_blank" style="font-weight: bold;">@NZJobScout_bot</a>) and press <b>/start</b> first.
+                            </div>
                         </div>
-                            
-                            <div class="form-text">Your Telegram ID to receive instant alerts and matching scores.</div>
-                        </div>
+                        
+                        <div class="form-text mb-3">Your Telegram ID to receive instant alerts and matching scores.</div>
 
                         <div class="row">
                             <div class="col-md-6 mb-3">
@@ -102,7 +107,6 @@
                     if(stripeData.checkout_url) {
                         window.location.href = stripeData.checkout_url;
                     } else {
-                        // Error အစစ်အမှန်ကို မျက်နှာပြင်ပေါ်တွင် ဖော်ပြပေးရန်
                         alert('Error: ' + (stripeData.error || 'Unknown error creating checkout session'));
                     }
                 } else {
