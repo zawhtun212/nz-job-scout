@@ -31,7 +31,6 @@ def send_telegram_message(telegram_id, message):
         "chat_id": telegram_id,
         "text": message,
         "disable_web_page_preview": True
-        # parse_mode ကို ယာယီဖြုတ်ထားလိုက်သည် (Markdown Error ကြောင့် မက်ဆေ့ချ်မလာခြင်းကို ကာကွယ်ရန်)
     }
     try:
         response = requests.post(url, json=payload, timeout=15)
@@ -151,8 +150,8 @@ def evaluate_job_match(user_cv, job_description):
         Full Job Description:
         {job_description}
 
-        Provide your detailed analysis strictly in the following readable plain text format:
-        MATCH_SCORE: [Provide an accurate percentage score from 0 to 100 based on skill relevance]
+        Provide your detailed analysis strictly in the following format:
+        MATCH_SCORE: [Provide an accurate percentage score from 0 to 100 based on skill relevance, e.g., 85%]
         KEY_MATCHES: [List 3-4 specific matching skills found in both CV and Job Description]
         COVER_LETTER: [Write a comprehensive, highly professional, tailored cover letter for this specific New Zealand job opening]
         """
@@ -166,16 +165,19 @@ def evaluate_job_match(user_cv, job_description):
         if res.status_code == 200:
             data = res.json()
             try:
-                return data["candidates"][0]["content"]["parts"][0]["text"]
+                text_result = data["candidates"][0]["content"]["parts"][0]["text"]
+                return text_result if text_result else "MATCH_SCORE: N/A\nCOVER_LETTER: No content generated."
             except (KeyError, IndexError):
-                return "MATCH_SCORE: 50\nKEY_MATCHES: General Skills\nCOVER_LETTER: Analysis generated."
+                return "MATCH_SCORE: 50\nKEY_MATCHES: General Skills\nCOVER_LETTER: Analysis parsing error."
         else:
-            return "MATCH_SCORE: 0\nKEY_MATCHES: None\nCOVER_LETTER: Unable to generate."
+            print(f"❌ Gemini API Error: {res.status_code} - {res.text}")
+            return "MATCH_SCORE: 0\nKEY_MATCHES: None\nCOVER_LETTER: API connection failed."
     except Exception as e:
+        print(f"❌ Exception in evaluate_job_match: {e}")
         return "MATCH_SCORE: 0\nKEY_MATCHES: None\nCOVER_LETTER: Error in evaluation."
 
 def run_worker_loop():
-    print("🚀 Robust Bot Started & Running...")
+    print("🚀 Complete Bot Started & Running...")
     while True:
         try:
             conn = get_db_connection()
@@ -205,12 +207,11 @@ def run_worker_loop():
                     cv_text = str(user_cv) if user_cv else "General CV"
                     analysis = evaluate_job_match(cv_text, job['description'])
                     
-                    # Plain text ပုံစံသို့ ပြောင်းလဲထားသည် (Markdown Error လုံးဝကင်းစေရန်)
                     message = (
                         f"🔥 [{job['platform']}] New Job Match!\n\n"
                         f"📌 Position: {job['title']}\n"
                         f"🏢 Company: {job['company']}\n\n"
-                        f"📋 AI Analysis & Cover Letter:\n{analysis}\n\n"
+                        f"{analysis}\n\n"
                         f"🔗 Apply Here: {job['url']}"
                     )
                     
