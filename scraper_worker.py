@@ -23,7 +23,7 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.5"
 }
 
-# 1. Seek (Playwright + Anti-Detection ဖြင့် Scrap လုပ်ခြင်း)
+# 1. Seek (Playwright ဖြင့် Anti-Bot ကျော်လွှားပြီး Scrap လုပ်ခြင်း)
 async def scrape_seek(keyword, location):
     formatted_keyword = keyword.replace(" ", "-")
     formatted_location = location.replace(" ", "-")
@@ -38,26 +38,15 @@ async def scrape_seek(keyword, location):
         context = await browser.new_context(
             user_agent=HEADERS["User-Agent"],
             viewport={"width": 1920, "height": 1080},
-            device_scale_factor=1,
         )
         page = await context.new_page()
-        
-        # Bot Detection ကို ကာကွယ်ရန်
         await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
         try:
             print(f"🔍 Scraping Seek for '{keyword}'...")
-            await page.goto(url, timeout=60000, wait_until="networkidle")
-            
-            # အလုပ်အကိုင် Card တွေ ပေါ်လာအောင် Page ကို ခဏ Scroll ဆင်းပေးခြင်း
-            await page.evaluate("window.scrollBy(0, 800)")
+            await page.goto(url, timeout=30000, wait_until="domcontentloaded")
             await asyncio.sleep(2)
             
-            try:
-                await page.wait_for_selector('article, [data-automation="normalJob"], [data-automation="jobCard"]', timeout=15000)
-            except:
-                print("⚠️ Seek selector timeout, trying to parse whatever is loaded...")
-
             content = await page.content()
             soup = BeautifulSoup(content, 'html.parser')
             
@@ -243,19 +232,19 @@ async def run_worker_loop():
 
                 all_jobs = []
                 
-                # 1. Seek (Async)
+                # 1. Seek (Async Playwright)
                 seek_jobs = await scrape_seek(keywords, loc)
                 all_jobs.extend(seek_jobs)
                 
-                # 2. Trade Me (Sync)
+                # 2. Trade Me (Sync Requests)
                 trademe_jobs = scrape_trademe(keywords, loc)
                 all_jobs.extend(trademe_jobs)
                 
-                # 3. Indeed (Sync)
+                # 3. Indeed (Sync Requests)
                 indeed_jobs = scrape_indeed(keywords, loc)
                 all_jobs.extend(indeed_jobs)
                 
-                # 4. LinkedIn (Sync)
+                # 4. LinkedIn (Sync Requests)
                 linkedin_jobs = scrape_linkedin(keywords, loc)
                 all_jobs.extend(linkedin_jobs)
 
