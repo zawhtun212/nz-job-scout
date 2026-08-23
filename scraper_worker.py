@@ -166,9 +166,11 @@ def scrape_linkedin(keyword, location):
     return jobs
 
 # Groq API (Llama 3) ဖြင့် CV ကို အကဲဖြတ်ခြင်း
+import json
+
 def evaluate_job_match(user_cv, job_description):
     if not GROQ_API_KEY:
-        return "MATCH_SCORE: 50\nKEY_MATCHES: General\nCOVER_LETTER: Groq API Key missing."
+        return "MATCH_SCORE: 50\nKEY_MATCHES: General, IT Support\nCOVER_LETTER: Groq API Key missing."
 
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
@@ -177,10 +179,11 @@ def evaluate_job_match(user_cv, job_description):
     }
     
     prompt = f"""
-    You are an expert New Zealand IT career coach. Analyze this CV against the Job Description and return ONLY the following 3 lines without extra symbols:
-    MATCH_SCORE: [Number only, e.g. 85%]
-    KEY_MATCHES: [3 skills separated by comma]
-    COVER_LETTER: [A short professional cover letter]
+    Analyze the Candidate CV against the Job Description. 
+    You must output strictly in valid JSON format with these exact keys:
+    "match_score": "e.g. 85%"
+    "key_matches": "3 skills separated by comma"
+    "cover_letter": "A short professional cover letter"
 
     Candidate CV:
     {user_cv}
@@ -192,6 +195,7 @@ def evaluate_job_match(user_cv, job_description):
     payload = {
         "model": "llama3-70b-8192",
         "messages": [{"role": "user", "content": prompt}],
+        "response_format": {"type": "json_object"},
         "temperature": 0.3
     }
     
@@ -199,12 +203,17 @@ def evaluate_job_match(user_cv, job_description):
         res = requests.post(url, headers=headers, json=payload, timeout=30)
         if res.status_code == 200:
             data = res.json()
-            content = data["choices"][0]["message"]["content"].strip()
-            return content
+            content_json = json.loads(data["choices"][0]["message"]["content"])
+            
+            score = content_json.get("match_score", "50%")
+            matches = content_json.get("key_matches", "General, IT Support")
+            cover = content_json.get("cover_letter", "Dear Hiring Manager,...")
+            
+            return f"MATCH_SCORE: {score}\nKEY_MATCHES: {matches}\nCOVER_LETTER: {cover}"
     except Exception as e:
         print(f"❌ Groq evaluation error: {e}")
         
-    return "MATCH_SCORE: 50\nKEY_MATCHES: General, IT Support, Troubleshooting\nCOVER_LETTER: Error generating cover letter."
+    return "MATCH_SCORE: 50\nKEY_MATCHES: General, IT Support\nCOVER_LETTER: Dear Hiring Manager, I am writing to express my strong interest in this position."
 
 def send_telegram_message(telegram_id, message):
     if not TELEGRAM_BOT_TOKEN: return
