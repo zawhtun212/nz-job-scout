@@ -168,7 +168,7 @@ def scrape_linkedin(keyword, location):
 # Groq API (Llama 3) ဖြင့် CV ကို အကဲဖြတ်ခြင်း
 def evaluate_job_match(user_cv, job_description):
     if not GROQ_API_KEY:
-        return "MATCH_SCORE: 50\nKEY_MATCHES: General\nCOVER_LETTER: Error."
+        return "MATCH_SCORE: 50\nKEY_MATCHES: General\nCOVER_LETTER: Groq API Key missing."
 
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
@@ -176,37 +176,35 @@ def evaluate_job_match(user_cv, job_description):
         "Content-Type": "application/json"
     }
     
-    # f-string ကို သေချာပါအောင် ထည့်ပေးထားပါသည်
     prompt = f"""
-    You are an expert New Zealand IT career coach. Analyze this CV against the Job Description.
+    You are an expert New Zealand IT career coach. Analyze this CV against the Job Description and return ONLY the following 3 lines without extra symbols:
+    MATCH_SCORE: [Number only, e.g. 85%]
+    KEY_MATCHES: [3 skills separated by comma]
+    COVER_LETTER: [A short professional cover letter]
 
     Candidate CV:
     {user_cv}
 
     Job Description:
     {job_description}
-
-    Provide your response strictly in this format:
-    MATCH_SCORE: [Percentage score from 0 to 100, e.g., 85%]
-    KEY_MATCHES: [List 3 specific matching skills]
-    COVER_LETTER: [Write a concise, professional cover letter tailored for this job]
     """
     
     payload = {
         "model": "llama3-70b-8192",
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.7
+        "temperature": 0.3
     }
     
     try:
         res = requests.post(url, headers=headers, json=payload, timeout=30)
         if res.status_code == 200:
             data = res.json()
-            return data["choices"][0]["message"]["content"]
+            content = data["choices"][0]["message"]["content"].strip()
+            return content
     except Exception as e:
         print(f"❌ Groq evaluation error: {e}")
         
-    return "MATCH_SCORE: 50\nKEY_MATCHES: General\nCOVER_LETTER: Error."
+    return "MATCH_SCORE: 50\nKEY_MATCHES: General, IT Support, Troubleshooting\nCOVER_LETTER: Error generating cover letter."
 
 def send_telegram_message(telegram_id, message):
     if not TELEGRAM_BOT_TOKEN: return
