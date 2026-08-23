@@ -23,7 +23,7 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.5"
 }
 
-# 1. Seek (Playwright ဖြင့် 403 Error ကျော်လွှား၍ Scrap လုပ်ခြင်း)
+# 1. Seek (Playwright ဖြင့် Timeout ပြဿနာဖြေရှင်းပြီး Scrap လုပ်ခြင်း)
 async def scrape_seek(keyword, location):
     formatted_keyword = keyword.replace(" ", "-")
     formatted_location = location.replace(" ", "-")
@@ -32,13 +32,17 @@ async def scrape_seek(keyword, location):
     jobs = []
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(user_agent=HEADERS["User-Agent"])
+        context = await browser.new_context(
+            user_agent=HEADERS["User-Agent"],
+            viewport={"width": 1920, "height": 1080}
+        )
         page = await context.new_page()
         
         try:
             print(f"🔍 Scraping Seek for '{keyword}'...")
-            await page.goto(url, timeout=30000)
-            await page.wait_for_selector('article', timeout=10000)
+            await page.goto(url, timeout=60000, wait_until="domcontentloaded")
+            await asyncio.sleep(3)
+            await page.wait_for_selector('article, [data-automation="jobCard"]', timeout=20000)
             
             content = await page.content()
             soup = BeautifulSoup(content, 'html.parser')
