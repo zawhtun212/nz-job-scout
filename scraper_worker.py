@@ -139,7 +139,8 @@ def scrape_linkedin(keyword, location):
 
 def evaluate_job_match(user_cv, job_description):
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GOOGLE_API_KEY}"
+        # gemini-3.6-flash သို့ အောင်မြင်စွာ ပြောင်းလဲထားသည်
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GOOGLE_API_KEY}"
         prompt = f"""
         You are an expert New Zealand IT career coach and professional recruiter. 
         Carefully analyze the candidate's CV against the full Job Description below.
