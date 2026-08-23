@@ -18,12 +18,12 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.5"
 }
 
-# 1. Seek (Playwright ဖြင့် Timeout ပြဿနာဖြေရှင်းပြီး Scrap လုပ်ခြင်း)
+# 1. Seek (Playwright + Anti-Detection ဖြင့် Scrap လုပ်ခြင်း)
 async def scrape_seek(keyword, location):
     formatted_keyword = keyword.replace(" ", "-")
     formatted_location = location.replace(" ", "-")
@@ -31,24 +31,40 @@ async def scrape_seek(keyword, location):
     
     jobs = []
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(
+            headless=True,
+            args=["--disable-blink-features=AutomationControlled", "--no-sandbox"]
+        )
         context = await browser.new_context(
             user_agent=HEADERS["User-Agent"],
-            viewport={"width": 1920, "height": 1080}
+            viewport={"width": 1920, "height": 1080},
+            device_scale_factor=1,
         )
         page = await context.new_page()
         
+        # Bot Detection ကို ကာကွယ်ရန်
+        await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        
         try:
             print(f"🔍 Scraping Seek for '{keyword}'...")
-            await page.goto(url, timeout=60000, wait_until="domcontentloaded")
-            await asyncio.sleep(3)
-            await page.wait_for_selector('article, [data-automation="jobCard"]', timeout=20000)
+            await page.goto(url, timeout=60000, wait_until="networkidle")
             
+            # အလုပ်အကိုင် Card တွေ ပေါ်လာအောင် Page ကို ခဏ Scroll ဆင်းပေးခြင်း
+            await page.evaluate("window.scrollBy(0, 800)")
+            await asyncio.sleep(2)
+            
+            try:
+                await page.wait_for_selector('article, [data-automation="normalJob"], [data-automation="jobCard"]', timeout=15000)
+            except:
+                print("⚠️ Seek selector timeout, trying to parse whatever is loaded...")
+
             content = await page.content()
             soup = BeautifulSoup(content, 'html.parser')
             
-            for article in soup.find_all('article')[:2]:
-                title_elem = article.find('a', {'data-automation': 'jobTitle'})
+            articles = soup.find_all('article') or soup.find_all('div', {'data-automation': 'normalJob'})
+            
+            for article in articles[:2]:
+                title_elem = article.find('a', {'data-automation': 'jobTitle'}) or article.find('a', class_=lambda x: x and 'job-title' in x)
                 company_elem = article.find('a', {'data-automation': 'jobCompany'})
                 if title_elem:
                     title = title_elem.text.strip()
