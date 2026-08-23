@@ -62,9 +62,10 @@ def fetch_job_description(url, platform):
             if desc_elem: desc = desc_elem.get_text(separator="\n", strip=True)
             
         if not desc:
-            desc = soup.get_text(separator="\n", strip=True)[:3000]
+            desc = soup.get_text(separator="\n", strip=True)
             
-        return desc
+        # စာသားအလွန်ရှည်ပါက AI မြန်ဆန်စွာ ဖြေကြားနိုင်ရန် ဇကာတင်ကန့်သတ်ခြင်း (2500 characters)
+        return desc[:2500]
     except Exception as e:
         return "Detailed description fetch failed."
 
@@ -139,7 +140,6 @@ def scrape_linkedin(keyword, location):
 
 def evaluate_job_match(user_cv, job_description):
     try:
-        # gemini-3.6-flash သို့ အောင်မြင်စွာ ပြောင်းလဲထားသည်
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GOOGLE_API_KEY}"
         prompt = f"""
         You are an expert New Zealand IT career coach and professional recruiter. 
@@ -161,7 +161,8 @@ def evaluate_job_match(user_cv, job_description):
                 "parts": [{"text": prompt}]
             }]
         }
-        res = requests.post(url, json=payload, timeout=30)
+        # Timeout ကို စက္ကန့် ၆၀ သို့ တိုးမြှင့်ထားသည်
+        res = requests.post(url, json=payload, timeout=60)
         
         if res.status_code == 200:
             data = res.json()
