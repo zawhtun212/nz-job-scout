@@ -168,13 +168,15 @@ def scrape_linkedin(keyword, location):
 # Groq API (Llama 3) ဖြင့် CV ကို အကဲဖြတ်ခြင်း
 def evaluate_job_match(user_cv, job_description):
     if not GROQ_API_KEY:
-        return "MATCH_SCORE: N/A\nKEY_MATCHES: None\nCOVER_LETTER: Groq API Key missing."
+        return "MATCH_SCORE: 50\nKEY_MATCHES: General\nCOVER_LETTER: Error."
 
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
+    
+    # f-string ကို သေချာပါအောင် ထည့်ပေးထားပါသည်
     prompt = f"""
     You are an expert New Zealand IT career coach. Analyze this CV against the Job Description.
 
@@ -189,11 +191,13 @@ def evaluate_job_match(user_cv, job_description):
     KEY_MATCHES: [List 3 specific matching skills]
     COVER_LETTER: [Write a concise, professional cover letter tailored for this job]
     """
+    
     payload = {
         "model": "llama3-70b-8192",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.7
     }
+    
     try:
         res = requests.post(url, headers=headers, json=payload, timeout=30)
         if res.status_code == 200:
@@ -201,6 +205,7 @@ def evaluate_job_match(user_cv, job_description):
             return data["choices"][0]["message"]["content"]
     except Exception as e:
         print(f"❌ Groq evaluation error: {e}")
+        
     return "MATCH_SCORE: 50\nKEY_MATCHES: General\nCOVER_LETTER: Error."
 
 def send_telegram_message(telegram_id, message):
