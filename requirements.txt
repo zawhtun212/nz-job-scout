@@ -10,3 +10,4 @@ werkzeug
 gunicorn
 beautifulsoup4
 APScheduler
+supabase
