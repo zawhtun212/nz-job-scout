@@ -3,7 +3,6 @@ import requests
 import psycopg2
 import time
 import os
-from curl_cffi import requests as cffi_requests
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -18,8 +17,8 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5"
 }
 
 def send_telegram_message(telegram_id, message):
@@ -31,8 +30,8 @@ def send_telegram_message(telegram_id, message):
     payload = {
         "chat_id": telegram_id,
         "text": message,
-        "parse_mode": "Markdown",
-        "disable_web_page_preview": True
+        "disable_web_page_preview": True,
+        "parse_mode": "Markdown"
     }
     try:
         response = requests.post(url, json=payload)
@@ -43,7 +42,7 @@ def send_telegram_message(telegram_id, message):
 
 def fetch_job_description(url, platform):
     try:
-        res = cffi_requests.get(url, headers=HEADERS, impersonate="chrome120", timeout=15)
+        res = requests.get(url, headers=HEADERS, timeout=10)
         if res.status_code != 200:
             return "Description could not be fetched."
         
@@ -54,7 +53,7 @@ def fetch_job_description(url, platform):
             desc_elem = soup.find("div", {"data-automation": "jobAdDetails"})
             if desc_elem: desc = desc_elem.get_text(separator="\n", strip=True)
         elif platform == "Trade Me":
-            desc_elem = soup.find("div", class_="o-card") or soup.find("tm-property-view-detailed-attributes")
+            desc_elem = soup.find("div", class_="o-card")
             if desc_elem: desc = desc_elem.get_text(separator="\n", strip=True)
         elif platform == "Indeed":
             desc_elem = soup.find("div", id="jobDescriptionText")
@@ -70,43 +69,52 @@ def fetch_job_description(url, platform):
     except Exception as e:
         return "Detailed description fetch failed."
 
+# 1. Seek API Scraper
 def scrape_seek(keyword, location):
     formatted_kw = keyword.replace(" ", "-").lower()
     formatted_loc = location.replace(" ", "-").lower()
-    url = f"https://www.seek.co.nz/{formatted_kw}-jobs/in-{formatted_loc}"
-    print(f"🌐 Scraping Seek: {url}")
+    print(f"🌐 Scraping Seek API for: {keyword} in {location}")
     try:
-        res = cffi_requests.get(url, headers=HEADERS, impersonate="chrome120", timeout=15)
-        print(f"🌐 Seek Response Status: {res.status_code}")
-        if res.status_code != 200: return []
+        api_url = f"https://www.seek.co.nz/api/jobsearch/v5/search?siteKey=NZ-JSM&where={formatted_loc}&keywords={formatted_kw}&page=1"
+        api_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+            "X-Client-Feature-Flags": "multilocation",
+            "Referer": "https://www.seek.co.nz/"
+        }
+        res = requests.get(api_url, headers=api_headers, timeout=10)
+        print(f"🌐 Seek API Response Status: {res.status_code}")
         
-        soup = BeautifulSoup(res.text, 'html.parser')
+        if res.status_code != 200:
+            return []
+            
+        data = res.json()
         jobs = []
-        for card in soup.find_all('article')[:2]:
-            title_elem = card.find('a', {'data-automation': 'jobTitle'}) or card.find('a', {'data-type': 'job-title'}) or card.find('a')
-            company_elem = card.find('a', {'data-automation': 'jobCompany'}) or card.find('a', {'data-type': 'company-name'})
-            if title_elem and title_elem.text:
-                title = title_elem.text.strip()
-                href = title_elem.get('href', '')
-                link = "https://www.seek.co.nz" + href.split('?')[0] if href.startswith('/') else href
-                company = company_elem.text.strip() if company_elem else "Direct Employer"
-                full_desc = fetch_job_description(link, "Seek")
-                jobs.append({
-                    "platform": "Seek", "title": title, "company": company, "url": link, "description": full_desc
-                })
+        
+        for item in data.get("data", [])[:2]:
+            title = item.get("title", "No Title")
+            company = item.get("advertiser", {}).get("description", "Direct Employer")
+            job_id = item.get("id")
+            link = f"https://www.seek.co.nz/job/{job_id}" if job_id else "https://www.seek.co.nz"
+            abstract = item.get("teaser", "No description provided.")
+            
+            jobs.append({
+                "platform": "Seek", "title": title, "company": company, "url": link, "description": abstract
+            })
         return jobs
     except Exception as e:
+        print(f"Seek API error: {e}")
         return []
 
+# 2. Trade Me Scraper
 def scrape_trademe(keyword, location):
     url = f"https://www.trademe.co.nz/a/jobs/search?search_string={keyword}&region={location}"
-    print(f"🌐 Scraping Trade Me: {url}")
     try:
-        res = cffi_requests.get(url, headers=HEADERS, impersonate="chrome120", timeout=15)
+        res = requests.get(url, headers=HEADERS, timeout=10)
         if res.status_code != 200: return []
         soup = BeautifulSoup(res.text, 'html.parser')
         jobs = []
-        for card in (soup.find_all('tg-card')[:2] or soup.find_all('div', class_='o-card')[:2]):
+        for card in soup.find_all('tg-card')[:2] or soup.find_all('div', class_='o-card')[:2]:
             title_elem = card.find('a')
             if title_elem:
                 title = title_elem.text.strip()
@@ -120,11 +128,11 @@ def scrape_trademe(keyword, location):
     except Exception as e:
         return []
 
+# 3. Indeed Scraper
 def scrape_indeed(keyword, location):
     url = f"https://nz.indeed.com/jobs?q={keyword}&l={location}"
-    print(f"🌐 Scraping Indeed: {url}")
     try:
-        res = cffi_requests.get(url, headers=HEADERS, impersonate="chrome120", timeout=15)
+        res = requests.get(url, headers=HEADERS, timeout=10)
         if res.status_code != 200: return []
         soup = BeautifulSoup(res.text, 'html.parser')
         jobs = []
@@ -143,11 +151,11 @@ def scrape_indeed(keyword, location):
     except Exception as e:
         return []
 
+# 4. LinkedIn Scraper
 def scrape_linkedin(keyword, location):
     url = f"https://www.linkedin.com/jobs/search?keywords={keyword}&location={location}"
-    print(f"🌐 Scraping LinkedIn: {url}")
     try:
-        res = cffi_requests.get(url, headers=HEADERS, impersonate="chrome120", timeout=15)
+        res = requests.get(url, headers=HEADERS, timeout=10)
         if res.status_code != 200: return []
         soup = BeautifulSoup(res.text, 'html.parser')
         jobs = []
@@ -209,7 +217,6 @@ def run_worker_loop():
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
-            # user_cv သေချာပါဝင်အောင် ဆွဲထုတ်ခြင်း
             cursor.execute("SELECT telegram_id, job_keywords, location, user_cv FROM users")
             active_users = cursor.fetchall()
             cursor.close()
@@ -233,11 +240,7 @@ def run_worker_loop():
                 print(f"✅ Total jobs found across 4 platforms: {len(all_jobs)}")
 
                 for job in all_jobs:
-                    # CV ရှိမရှိ စစ်ဆေးပြီးမှ AI ဖြင့် analyze လုပ်ခြင်း
-                    if user_cv and len(user_cv.strip()) > 10:
-                        analysis = evaluate_job_match(user_cv, job['description'])
-                    else:
-                        analysis = "MATCH_SCORE: 0\nKEY_MATCHES: N/A (CV not found in profile)\nCOVER_LETTER: Please update your CV via Telegram bot first."
+                    analysis = evaluate_job_match(user_cv, job['description']) if user_cv else "MATCH_SCORE: 0\nKEY_MATCHES: N/A\nCOVER_LETTER: Please save your CV."
                     
                     message = (
                         f"🔥 *[{job['platform']}] New Job Match!*\n\n"
