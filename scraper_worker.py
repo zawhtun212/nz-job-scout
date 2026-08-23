@@ -3,6 +3,7 @@ import requests
 import psycopg2
 import time
 import os
+import random
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -78,7 +79,7 @@ def scrape_jobs_for_keyword(keyword, location):
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, 'html.parser')
             cards = soup.find_all('a', class_='o-card') or soup.find_all('div', class_='tm-search-card-list-listing-wrap')
-            for card in cards[:1]:  # Rate limit ရှောင်ရှားရန် တစ်ပလက်ဖောင်းလျှင် အလုပ် ၁ ခုစီသာ Scrape လုပ်ရန် ညှိထားသည်
+            for card in cards[:1]:
                 title_elem = card.find('h3') or card.find('span', class_='tm-search-card-list-listing-title')
                 if not title_elem and card.name == 'a':
                     title_elem = card
@@ -136,44 +137,55 @@ def scrape_jobs_for_keyword(keyword, location):
     return all_jobs
 
 def evaluate_job_match(user_cv, job_description):
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GOOGLE_API_KEY}"
-        prompt = f"""
-        You are an expert New Zealand IT career coach. Analyze this CV against the Job Description.
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GOOGLE_API_KEY}"
+    prompt = f"""
+    You are an expert New Zealand IT career coach. Analyze this CV against the Job Description.
 
-        Candidate CV:
-        {user_cv}
+    Candidate CV:
+    {user_cv}
 
-        Job Description:
-        {job_description}
+    Job Description:
+    {job_description}
 
-        Provide your response strictly in this format:
-        MATCH_SCORE: [Percentage score from 0 to 100, e.g., 85%]
-        KEY_MATCHES: [List 3 specific matching skills]
-        COVER_LETTER: [Write a concise, professional cover letter tailored for this job]
-        """
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        res = requests.post(url, json=payload, timeout=60)
-        
-        if res.status_code == 200:
-            data = res.json()
-            try:
-                return data["candidates"][0]["content"]["parts"][0]["text"]
-            except (KeyError, IndexError):
-                return "MATCH_SCORE: 50\nKEY_MATCHES: General\nCOVER_LETTER: Parsing error."
-        elif res.status_code == 429:
-            print("⚠️ Rate limit reached (429). Waiting 15 seconds...")
-            time.sleep(15)
-            return "MATCH_SCORE: N/A\nKEY_MATCHES: Rate limited\nCOVER_LETTER: Temporarily limited."
-        else:
-            print(f"❌ Gemini API Error: {res.status_code} - {res.text}")
-            return "MATCH_SCORE: 0\nKEY_MATCHES: None\nCOVER_LETTER: API failed."
-    except Exception as e:
-        print(f"❌ Exception in evaluation: {e}")
-        return "MATCH_SCORE: 0\nKEY_MATCHES: None\nCOVER_LETTER: Timeout or error."
+    Provide your response strictly in this format:
+    MATCH_SCORE: [Percentage score from 0 to 100, e.g., 85%]
+    KEY_MATCHES: [List 3 specific matching skills]
+    COVER_LETTER: [Write a concise, professional cover letter tailored for this job]
+    """
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    
+    max_retries = 3
+    base_delay = 20 # 429 တွေ့လျှင် ပထမဆုံး စောင့်မည့် အချိန် (စက္ကန့် ၂၀)
+
+    for attempt in range(max_retries):
+        try:
+            res = requests.post(url, json=payload, timeout=60)
+            
+            if res.status_code == 200:
+                data = res.json()
+                try:
+                    return data["candidates"][0]["content"]["parts"][0]["text"]
+                except (KeyError, IndexError):
+                    return "MATCH_SCORE: 50\nKEY_MATCHES: General\nCOVER_LETTER: Parsing error."
+            
+            elif res.status_code == 429:
+                # Exponential Backoff (စောင့်ရမည့်အချိန်ကို တဖြည်းဖြည်း တိုးသွားခြင်း)
+                wait_time = base_delay * (2 ** attempt) + random.uniform(1, 5)
+                print(f"⚠️ Rate limit reached (429). Attempt {attempt + 1}/{max_retries}. Waiting {wait_time:.1f} seconds...")
+                time.sleep(wait_time)
+            
+            else:
+                print(f"❌ Gemini API Error: {res.status_code} - {res.text}")
+                return "MATCH_SCORE: 0\nKEY_MATCHES: None\nCOVER_LETTER: API failed."
+                
+        except Exception as e:
+            print(f"❌ Exception in evaluation: {e}")
+            return "MATCH_SCORE: 0\nKEY_MATCHES: None\nCOVER_LETTER: Timeout or error."
+            
+    return "MATCH_SCORE: N/A\nKEY_MATCHES: Rate limited permanently\nCOVER_LETTER: API limit exceeded."
 
 def run_worker_loop():
-    print("🚀 Rate-Limited Job Scout Bot Started & Running...")
+    print("🚀 Resilient Job Scout Bot Started & Running...")
     while True:
         try:
             conn = get_db_connection()
@@ -207,8 +219,9 @@ def run_worker_loop():
                     )
                     
                     send_telegram_message(telegram_id, message)
-                    # API 429 Error မတက်စေရန် တစ်ခုနှင့်တစ်ခု အတောအသင့် အချိန်ခြားပေးခြင်း (10 seconds)
-                    time.sleep(10)
+                    
+                    # ပုံမှန် API ခေါ်ဆိုမှုတိုင်းအတွက် သေချာပေါက် အနားပေးခြင်း (Free Tier Limit မပြည့်စေရန်)
+                    time.sleep(15)
 
         except Exception as e:
             print(f"❌ Error in worker cycle: {e}")
