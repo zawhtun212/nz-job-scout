@@ -5,6 +5,9 @@ import time
 import os
 import urllib.parse
 
+from dotenv import load_dotenv
+load_dotenv()
+
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 def get_db_connection():
