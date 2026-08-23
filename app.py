@@ -14,7 +14,7 @@ app = Flask(__name__)
 stripe.api_key = os.environ.get("STRIPE_API_KEY", "sk_test_51U4dsARsY9pyx48SiKwb9uf48pewo7OVhBijGippD1q5RufnbXL9g1Jci1Okqq36q1LjQpEV3HvvNHlYzQgapdKK004uvCslZH")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "whsec_1hF3Jy80A9x1dANaNJdlmlSoAu5eWjOK")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8746508324:AAG2tZBW8U5ZKqzwci20W2b3SPwRs1MARI4")
-PRIVATE_CHANNEL_ID = "-1004349902452"
+TELEGRAM_CHANNEL_ID = "-1004349902452"
 
 # Supabase PostgreSQL Connection URL ကို Render Environment Variable မှ ရယူခြင်း
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -165,7 +165,7 @@ def stripe_webhook():
                 # Private Channel အတွက် တစ်ကြိမ်သုံး Invite Link ထုတ်ယူခြင်း
                 invite_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/createChatInviteLink"
                 invite_payload = {
-                    "chat_id": PRIVATE_CHANNEL_ID,
+                    "chat_id": TELEGRAM_CHANNEL_ID,
                     "member_limit": 1,
                     "expire_date": int((datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=24)).timestamp())
                 }
