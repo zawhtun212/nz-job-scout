@@ -31,6 +31,7 @@ def send_telegram_message(telegram_id, message):
     payload = {
         "chat_id": telegram_id,
         "text": message,
+        "parse_mode": "Markdown",
         "disable_web_page_preview": True
     }
     try:
@@ -79,7 +80,7 @@ def scrape_seek(keyword, location):
         if res.status_code != 200: return []
         soup = BeautifulSoup(res.text, 'html.parser')
         jobs = []
-        for card in soup.find_all('article')[:3]:
+        for card in soup.find_all('article')[:2]:
             title_elem = card.find('a', {'data-automation': 'jobTitle'}) or card.find('a', {'data-type': 'job-title'}) or card.find('a')
             company_elem = card.find('a', {'data-automation': 'jobCompany'}) or card.find('a', {'data-type': 'company-name'})
             if title_elem and title_elem.text:
@@ -98,94 +99,9 @@ def scrape_seek(keyword, location):
         print(f"Seek scrape error: {e}")
         return []
 
-def scrape_linkedin(keyword, location):
-    encoded_kw = urllib.parse.quote(keyword)
-    encoded_loc = urllib.parse.quote(location)
-    url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={encoded_kw}&location={encoded_loc}"
-    try:
-        res = requests.get(url, headers=HEADERS, timeout=10)
-        if res.status_code != 200: return []
-        soup = BeautifulSoup(res.text, 'html.parser')
-        jobs = []
-        for card in soup.find_all('li')[:3]:
-            title_elem = card.find('h3', class_='base-search-card__title')
-            company_elem = card.find('h4', class_='base-search-card__subtitle')
-            link_elem = card.find('a', class_='base-card__full-link')
-            if title_elem and link_elem:
-                link = link_elem['href'].split('?')[0]
-                title = title_elem.text.strip()
-                
-                print(f"🔗 Fetching full details for LinkedIn job: {title}")
-                full_desc = fetch_job_description(link, "LinkedIn")
-                jobs.append({
-                    "platform": "LinkedIn", "title": title, "company": company_elem.text.strip() if company_elem else "Employer", "url": link, "description": full_desc
-                })
-        return jobs
-    except Exception as e:
-        print(f"LinkedIn scrape error: {e}")
-        return []
-
-def scrape_indeed(keyword, location):
-    url = f"https://nz.indeed.com/jobs?q={urllib.parse.quote(keyword)}&l={urllib.parse.quote(location)}"
-    try:
-        res = requests.get(url, headers=HEADERS, timeout=10)
-        if res.status_code != 200: return []
-        soup = BeautifulSoup(res.text, 'html.parser')
-        jobs = []
-        for card in soup.find_all('div', class_='job_seen_beacon') or soup.find_all('div', class_='cardOutline'):
-            title_elem = card.find('h2', class_='jobTitle') or card.find('a', class_='jcs-JobTitle')
-            company_elem = card.find('span', class_='companyName') or card.find('span', attrs={'data-testid': 'company-name'})
-            link_elem = card.find('a', class_='jcs-JobTitle') or card.find('a')
-            
-            if title_elem and link_elem:
-                title = title_elem.get_text(strip=True)
-                company = company_elem.get_text(strip=True) if company_elem else "Indeed Employer"
-                href = link_elem.get('href', '')
-                link = f"https://nz.indeed.com{href}" if href.startswith('/') else href
-                link = link.split('?')[0]
-                
-                print(f"🔗 Fetching full details for Indeed job: {title}")
-                full_desc = fetch_job_description(link, "Indeed")
-                jobs.append({
-                    "platform": "Indeed", "title": title, "company": company, "url": link, "description": full_desc
-                })
-        return jobs[:3]
-    except Exception as e:
-        print(f"Indeed scrape error: {e}")
-        return []
-
-def scrape_trademe(keyword, location):
-    formatted_kw = keyword.replace(" ", "-").lower()
-    url = f"https://www.trademe.co.nz/a/jobs/{location.lower()}/{formatted_kw}"
-    try:
-        res = requests.get(url, headers=HEADERS, timeout=10)
-        if res.status_code != 200: return []
-        soup = BeautifulSoup(res.text, 'html.parser')
-        jobs = []
-        cards = soup.find_all("tg-card", class_="tm-marketplace-card") or soup.find_all('a', href=True)
-        for card in cards[:3]:
-            a_tag = card if card.name == 'a' else card.find('a')
-            if a_tag and a_tag.has_attr('href'):
-                href = a_tag['href']
-                if '/a/jobs/' in href and ('listing' in href or len(href.split('/')) > 4):
-                    title = a_tag.get_text(strip=True)
-                    if len(title) > 5:
-                        link = f"https://www.trademe.co.nz{href}" if href.startswith('/') else href
-                        link = link.split('?')[0]
-                        
-                        print(f"🔗 Fetching full details for Trade Me job: {title}")
-                        full_desc = fetch_job_description(link, "Trade Me")
-                        jobs.append({
-                            "platform": "Trade Me", "title": title, "company": "TradeMe Employer", "url": link, "description": full_desc
-                        })
-        return jobs
-    except Exception as e:
-        print(f"TradeMe scrape error: {e}")
-        return []
-
 def evaluate_job_match(user_cv, job_description):
     try:
-        # မော်ဒယ်နာမည်ကို gemini-3.6-flash သို့ ပြောင်းလဲထားသည်
+        # အရင်လို အသေးစိတ် ရလဒ်ကောင်းတွေ ထွက်စေရန် gemini-3.6-flash ကို သုံးထားသည်
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GOOGLE_API_KEY}"
         prompt = f"""
         You are an expert New Zealand IT career coach and professional recruiter. 
@@ -197,10 +113,10 @@ def evaluate_job_match(user_cv, job_description):
         Full Job Description:
         {job_description}
 
-        Provide your analysis strictly in the following readable format:
+        Provide your detailed analysis strictly in the following readable format:
         MATCH_SCORE: [Provide an accurate percentage score from 0 to 100 based on skill relevance]
         KEY_MATCHES: [List 3-4 specific matching skills found in both CV and Job Description]
-        COVER_LETTER: [Write a compelling, highly professional, tailored cover letter for this specific New Zealand job opening, ready to be sent to the hiring manager]
+        COVER_LETTER: [Write a comprehensive, highly professional, tailored cover letter for this specific New Zealand job opening, complete with an introduction, body paragraphs highlighting relevant experience, and a strong conclusion ready to send]
         """
         payload = {
             "contents": [{
@@ -215,7 +131,7 @@ def evaluate_job_match(user_cv, job_description):
                 return data["candidates"][0]["content"]["parts"][0]["text"]
             except (KeyError, IndexError) as parse_err:
                 print(f"JSON Parse Error: {parse_err}, Response: {data}")
-                return "MATCH_SCORE: 50\nKEY_MATCHES: General IT Skills\nCOVER_LETTER: Generated analysis structure was unexpected."
+                return "MATCH_SCORE: 50\nKEY_MATCHES: General Skills\nCOVER_LETTER: Generated analysis structure was unexpected."
         else:
             print(f"API Error Response Status {res.status_code}: {res.text}")
             return "MATCH_SCORE: 0\nKEY_MATCHES: None\nCOVER_LETTER: Unable to generate due to API connection issue."
@@ -229,31 +145,31 @@ def run_worker_loop():
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
-            cursor.execute("SELECT telegram_id, job_keywords, location, user_cv FROM users WHERE subscription_status = 'active'")
+            cursor.execute("SELECT telegram_id, job_keywords, location, user_cv FROM users")
             active_users = cursor.fetchall()
             cursor.close()
             conn.close()
 
-            print(f"👥 Found {len(active_users)} active user(s) to process.")
+            print(f"👥 Found {len(active_users)} user(s) to process.")
 
             for user in active_users:
                 telegram_id, keywords, location, user_cv = user
                 if not keywords: continue
-                loc = location if location else "All New Zealand"
+                loc = location if location else "Whanganui"
 
                 print(f"🔍 Scraping jobs for keyword: '{keywords}' in location: '{loc}'...")
-                all_jobs = (
-                    scrape_seek(keywords, loc) + 
-                    scrape_linkedin(keywords, loc) + 
-                    scrape_indeed(keywords, loc) + 
-                    scrape_trademe(keywords, loc)
-                )
-                print(f"✅ Found {len(all_jobs)} total jobs with full details.")
+                all_jobs = scrape_seek(keywords, loc)
 
                 for job in all_jobs:
                     analysis = evaluate_job_match(user_cv, job['description']) if user_cv else "MATCH_SCORE: 0\nKEY_MATCHES: N/A\nCOVER_LETTER: Please save your CV profile first."
                     
-                    message = f"[{job['platform']}] New Match!\n\nPosition: {job['title']}\nCompany: {job['company']}\nURL: {job['url']}\n\nAnalysis:\n{analysis}"
+                    message = (
+                        f"🔥 *[{job['platform']}] New Job Match!*\n\n"
+                        f"📌 *Position:* {job['title']}\n"
+                        f"🏢 *Company:* {job['company']}\n\n"
+                        f"📋 *AI Analysis & Cover Letter:*\n{analysis}\n\n"
+                        f"🔗 [Apply Here]({job['url']})"
+                    )
                     
                     telegram_res = send_telegram_message(telegram_id, message)
                     print(f"🤖 Telegram status for {telegram_id}: {telegram_res}")
