@@ -81,11 +81,8 @@ def save_user():
 
 @app.route('/create-checkout-session', methods=['POST'])
 def create_checkout_session():
-    if request.is_json:
-        data = request.get_json()
-        telegram_id = data.get('telegram_id') if data else None
-    else:
-        telegram_id = request.form.get('telegram_id')
+    data = request.get_json(silent=True) or request.form
+    telegram_id = data.get('telegram_id') if data else None
 
     if not telegram_id:
         return jsonify({'error': 'Telegram ID is missing'}), 400
