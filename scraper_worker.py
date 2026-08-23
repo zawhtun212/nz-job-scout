@@ -3,7 +3,7 @@ import requests
 import psycopg2
 import time
 import os
-from curl_cffi import requests as cffi_requests  # Seek ရဲ့ 403 ကို ကျော်ဖြတ်ရန်
+from curl_cffi import requests as cffi_requests
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -24,13 +24,14 @@ HEADERS = {
 
 def send_telegram_message(telegram_id, message):
     if not TELEGRAM_BOT_TOKEN:
-        print("Error: TELEGRAM_BOT_TOKEN is missing in environment!")
+        print("Error: TELEGRAM_BOT_TOKEN is missing!")
         return None
         
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": telegram_id,
         "text": message,
+        "parse_mode": "Markdown",
         "disable_web_page_preview": True
     }
     try:
@@ -42,7 +43,6 @@ def send_telegram_message(telegram_id, message):
 
 def fetch_job_description(url, platform):
     try:
-        # Cloudflare ရှိနိုင်သောကြောင့် curl_cffi ကို အသုံးပြုခြင်း
         res = cffi_requests.get(url, headers=HEADERS, impersonate="chrome120", timeout=15)
         if res.status_code != 200:
             return "Description could not be fetched."
@@ -68,10 +68,8 @@ def fetch_job_description(url, platform):
             
         return desc
     except Exception as e:
-        print(f"Error fetching job details from {url}: {e}")
         return "Detailed description fetch failed."
 
-# 1. Seek Scraper (curl_cffi ဖြင့် 403 ကျော်ဖြတ်ရန်)
 def scrape_seek(keyword, location):
     formatted_kw = keyword.replace(" ", "-").lower()
     formatted_loc = location.replace(" ", "-").lower()
@@ -92,17 +90,14 @@ def scrape_seek(keyword, location):
                 href = title_elem.get('href', '')
                 link = "https://www.seek.co.nz" + href.split('?')[0] if href.startswith('/') else href
                 company = company_elem.text.strip() if company_elem else "Direct Employer"
-                
                 full_desc = fetch_job_description(link, "Seek")
                 jobs.append({
                     "platform": "Seek", "title": title, "company": company, "url": link, "description": full_desc
                 })
         return jobs
     except Exception as e:
-        print(f"Seek scrape error: {e}")
         return []
 
-# 2. Trade Me Scraper
 def scrape_trademe(keyword, location):
     url = f"https://www.trademe.co.nz/a/jobs/search?search_string={keyword}&region={location}"
     print(f"🌐 Scraping Trade Me: {url}")
@@ -111,7 +106,7 @@ def scrape_trademe(keyword, location):
         if res.status_code != 200: return []
         soup = BeautifulSoup(res.text, 'html.parser')
         jobs = []
-        for card in soup.find_all('tg-card')[:2] or soup.find_all('div', class_='o-card')[:2]:
+        for card in (soup.find_all('tg-card')[:2] or soup.find_all('div', class_='o-card')[:2]):
             title_elem = card.find('a')
             if title_elem:
                 title = title_elem.text.strip()
@@ -123,10 +118,8 @@ def scrape_trademe(keyword, location):
                 })
         return jobs
     except Exception as e:
-        print(f"Trade Me scrape error: {e}")
         return []
 
-# 3. Indeed Scraper
 def scrape_indeed(keyword, location):
     url = f"https://nz.indeed.com/jobs?q={keyword}&l={location}"
     print(f"🌐 Scraping Indeed: {url}")
@@ -148,10 +141,8 @@ def scrape_indeed(keyword, location):
                 })
         return jobs
     except Exception as e:
-        print(f"Indeed scrape error: {e}")
         return []
 
-# 4. LinkedIn Scraper
 def scrape_linkedin(keyword, location):
     url = f"https://www.linkedin.com/jobs/search?keywords={keyword}&location={location}"
     print(f"🌐 Scraping LinkedIn: {url}")
@@ -174,7 +165,6 @@ def scrape_linkedin(keyword, location):
                 })
         return jobs
     except Exception as e:
-        print(f"LinkedIn scrape error: {e}")
         return []
 
 def evaluate_job_match(user_cv, job_description):
@@ -219,6 +209,7 @@ def run_worker_loop():
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
+            # user_cv သေချာပါဝင်အောင် ဆွဲထုတ်ခြင်း
             cursor.execute("SELECT telegram_id, job_keywords, location, user_cv FROM users")
             active_users = cursor.fetchall()
             cursor.close()
@@ -233,7 +224,6 @@ def run_worker_loop():
 
                 print(f"🔍 Scraping all platforms for keyword: '{keywords}' in location: '{loc}'...")
                 
-                # ပလက်ဖောင်း ၄ ခုလုံးမှ အလုပ်များကို စုဆောင်းခြင်း
                 all_jobs = []
                 all_jobs.extend(scrape_seek(keywords, loc))
                 all_jobs.extend(scrape_trademe(keywords, loc))
@@ -243,7 +233,11 @@ def run_worker_loop():
                 print(f"✅ Total jobs found across 4 platforms: {len(all_jobs)}")
 
                 for job in all_jobs:
-                    analysis = evaluate_job_match(user_cv, job['description']) if user_cv else "MATCH_SCORE: 0\nKEY_MATCHES: N/A\nCOVER_LETTER: Please save your CV."
+                    # CV ရှိမရှိ စစ်ဆေးပြီးမှ AI ဖြင့် analyze လုပ်ခြင်း
+                    if user_cv and len(user_cv.strip()) > 10:
+                        analysis = evaluate_job_match(user_cv, job['description'])
+                    else:
+                        analysis = "MATCH_SCORE: 0\nKEY_MATCHES: N/A (CV not found in profile)\nCOVER_LETTER: Please update your CV via Telegram bot first."
                     
                     message = (
                         f"🔥 *[{job['platform']}] New Job Match!*\n\n"
