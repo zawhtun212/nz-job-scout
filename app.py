@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, redirect
 import os
 import stripe
 import requests
@@ -23,7 +23,6 @@ def init_db():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # PostgreSQL syntax ဖြင့် Table တည်ဆောက်ခြင်း
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
@@ -58,16 +57,13 @@ def save_user():
 
     cv_text = ""
     if cv_file:
-        # Binary data ကို decode လုပ်ပြီးမှ Null bytes (\x00) များကို ဖယ်ရှားခြင်း
         raw_bytes = cv_file.read()
         cv_text = raw_bytes.decode('utf-8', errors='ignore')
-        # PostgreSQL က လက်မခံသော NUL characters များကို ဖယ်ရှားပေးခြင်း
         cv_text = cv_text.replace('\x00', '')
 
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # PostgreSQL Upsert Query (ON CONFLICT)
         cursor.execute('''
             INSERT INTO users (telegram_id, job_keywords, location, user_cv, subscription_status)
             VALUES (%s, %s, %s, %s, 'inactive')
@@ -103,7 +99,7 @@ def create_checkout_session():
                     'product_data': {
                         'name': 'NZ Job Scout Pro Subscription',
                     },
-                    'unit_amount': 1500,
+                    'unit_amount': 1500, # 15 NZD
                     'recurring': {'interval': 'month'},
                 },
                 'quantity': 1,
@@ -153,7 +149,7 @@ def stripe_webhook():
                 print(f"Subscription activated for Telegram ID: {telegram_id}")
 
                 # Admin သို့ Notification ပို့ခြင်း
-                ADMIN_TELEGRAM_CHAT_ID = "7072824431" # သင့်ရဲ့ Admin Telegram ID
+                ADMIN_TELEGRAM_CHAT_ID = "7072824431"
                 admin_msg = f"🔔 *New Pro Subscriber!*\n• *Telegram ID:* `{telegram_id}`\n• *Status:* Active ✅"
                 requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json={
                     "chat_id": ADMIN_TELEGRAM_CHAT_ID,
@@ -162,7 +158,7 @@ def stripe_webhook():
                 })
 
                 # Telegram သို့ အောင်မြင်ကြောင်း မက်ဆေ့ခ်ျ ပို့ခြင်း
-                message = "🎉 ကျေးဇူးတင်ပါတယ်! your NZ Job Scout Pro subscription is now active.တရားဝင် Job အချက်အလက်များကို ဆက်လက်ပေးပို့သွားပါမည်။We will start sending you matching job listings shortly."
+                message = "🎉 ကျေးဇူးတင်ပါတယ်! Your NZ Job Scout Pro subscription is now active. တရားဝင် Job အချက်အလက်များကို ဆက်လက်ပေးပို့သွားပါမည်။"
                 telegram_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
                 payload_data = {
                     "chat_id": telegram_id,
@@ -179,61 +175,6 @@ def stripe_webhook():
 def start_background_worker():
     worker_thread = threading.Thread(target=run_worker_loop, daemon=True)
     worker_thread.start()
-
-# Stripe Configuration
-stripe.api_key = os.getenv("STRIPE_API_KEY")
-ENDPOINT_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
-
-@app.route('/create-checkout-session', methods=['POST'])
-def create_checkout_session():
-    try:
-        telegram_id = request.form.get('telegram_id')
-        email = request.form.get('email')
-
-        checkout_session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
-            customer_email=email,
-            line_items=[{
-                'price_data': {
-                    'currency': 'nzd',
-                    'product_data': {
-                        'name': 'NZ Job Scout Pro - 1 Month Subscription',
-                    },
-                    'unit_amount': 2900, # $29 NZD
-                },
-                'quantity': 1,
-            }],
-            mode='payment',
-            success_url=request.host_url + 'success?session_id={CHECKOUT_SESSION_ID}',
-            cancel_url=request.host_url + 'cancel',
-            metadata={
-                'telegram_id': telegram_id
-            }
-        )
-        return redirect(checkout_session.url, code=303)
-    except Exception as e:
-        return str(e), 500
-
-@app.route('/stripe-webhook', methods=['POST'])
-def stripe_webhook():
-    payload = request.get_data(as_text=True)
-    sig_header = request.headers.get('Stripe-Signature')
-
-    try:
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, ENDPOINT_SECRET
-        )
-    except Exception as e:
-        return str(e), 400
-
-    if event['type'] == 'checkout.session.completed':
-        session = event['data']['object']
-        customer_email = session.get('customer_email')
-        telegram_id = session.get('metadata', {}).get('telegram_id')
-        
-        # ဒီနေရာမှာ Database ထဲက user ကို active ဖြစ်ကြောင်း update လုပ်တဲ့ code ထည့်နိုင်ပါသည်
-
-    return jsonify(success=True)
 
 if __name__ == '__main__':
     init_db()
