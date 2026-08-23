@@ -1,9 +1,10 @@
+from playwright.async_api import async_playwright
+import asyncio
 from bs4 import BeautifulSoup
 import requests
 import psycopg2
 import time
 import os
-import random
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -13,8 +14,8 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL)
 
-GOOGLE_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
@@ -22,64 +23,61 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.5"
 }
 
-def send_telegram_message(telegram_id, message):
-    if not TELEGRAM_BOT_TOKEN:
-        print("❌ Error: TELEGRAM_BOT_TOKEN is missing!")
-        return None
-        
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": telegram_id,
-        "text": message,
-        "disable_web_page_preview": True
-    }
-    try:
-        response = requests.post(url, json=payload, timeout=15)
-        if response.status_code != 200:
-            print(f"❌ Telegram Error Response: {response.text}")
-        return response.json()
-    except Exception as e:
-        print(f"❌ Exception in send_telegram_message: {e}")
-        return None
-
-def fetch_job_description(url, platform):
-    try:
-        res = requests.get(url, headers=HEADERS, timeout=10)
-        if res.status_code != 200:
-            return "Description could not be fetched."
-        
-        soup = BeautifulSoup(res.text, "html.parser")
-        desc = ""
-        
-        if platform == "Trade Me":
-            desc_elem = soup.find("div", class_="o-card") or soup.find("div", class_="tm-property-view-details")
-            if desc_elem: desc = desc_elem.get_text(separator="\n", strip=True)
-        elif platform == "Indeed":
-            desc_elem = soup.find("div", id="jobDescriptionText")
-            if desc_elem: desc = desc_elem.get_text(separator="\n", strip=True)
-        elif platform == "LinkedIn":
-            desc_elem = soup.find("div", class_="show-more-less-html__markup")
-            if desc_elem: desc = desc_elem.get_text(separator="\n", strip=True)
-            
-        if not desc:
-            desc = soup.get_text(separator="\n", strip=True)
-            
-        return desc[:800]
-    except Exception as e:
-        return "Detailed description fetch failed."
-
-def scrape_jobs_for_keyword(keyword, location):
-    all_jobs = []
+# 1. Seek (Playwright ဖြင့် 403 Error ကျော်လွှား၍ Scrap လုပ်ခြင်း)
+async def scrape_seek(keyword, location):
+    formatted_keyword = keyword.replace(" ", "-")
+    formatted_location = location.replace(" ", "-")
+    url = f"https://www.seek.co.nz/{formatted_keyword}-jobs/in-{formatted_location}"
     
-    # 1. Trade Me
+    jobs = []
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(user_agent=HEADERS["User-Agent"])
+        page = await context.new_page()
+        
+        try:
+            print(f"🔍 Scraping Seek for '{keyword}'...")
+            await page.goto(url, timeout=30000)
+            await page.wait_for_selector('article', timeout=10000)
+            
+            content = await page.content()
+            soup = BeautifulSoup(content, 'html.parser')
+            
+            for article in soup.find_all('article')[:2]:
+                title_elem = article.find('a', {'data-automation': 'jobTitle'})
+                company_elem = article.find('a', {'data-automation': 'jobCompany'})
+                if title_elem:
+                    title = title_elem.text.strip()
+                    href = title_elem.get('href', '')
+                    link = "https://www.seek.co.nz" + href if href.startswith('/') else href
+                    company = company_elem.text.strip() if company_elem else "Seek Employer"
+                    desc = article.get_text(separator="\n", strip=True)
+                    
+                    jobs.append({
+                        "platform": "Seek",
+                        "title": title,
+                        "company": company,
+                        "url": link,
+                        "description": desc[:800]
+                    })
+        except Exception as e:
+            print(f"❌ Seek error: {e}")
+        finally:
+            await browser.close()
+    return jobs
+
+# 2. Trade Me (Requests + BeautifulSoup)
+def scrape_trademe(keyword, location):
+    jobs = []
     try:
+        print(f"🔍 Scraping Trade Me for '{keyword}'...")
         formatted_keyword = keyword.replace(" ", "%20")
         url = f"https://www.trademe.co.nz/a/jobs/search?search_string={formatted_keyword}"
         res = requests.get(url, headers=HEADERS, timeout=10)
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, 'html.parser')
             cards = soup.find_all('a', class_='o-card') or soup.find_all('div', class_='tm-search-card-list-listing-wrap')
-            for card in cards[:1]:
+            for card in cards[:2]:
                 title_elem = card.find('h3') or card.find('span', class_='tm-search-card-list-listing-title')
                 if not title_elem and card.name == 'a':
                     title_elem = card
@@ -87,20 +85,29 @@ def scrape_jobs_for_keyword(keyword, location):
                     title = title_elem.text.strip()
                     href = card.get('href', '') if card.name == 'a' else card.find('a').get('href', '')
                     link = "https://www.trademe.co.nz" + href if href.startswith('/') else href
-                    full_desc = fetch_job_description(link, "Trade Me")
-                    all_jobs.append({"platform": "Trade Me", "title": title, "company": "Trade Me Employer", "url": link, "description": full_desc})
+                    jobs.append({
+                        "platform": "Trade Me",
+                        "title": title,
+                        "company": "Trade Me Employer",
+                        "url": link,
+                        "description": title
+                    })
     except Exception as e:
-        print(f"Trade Me error: {e}")
+        print(f"❌ Trade Me error: {e}")
+    return jobs
 
-    # 2. Indeed
+# 3. Indeed (Requests + BeautifulSoup)
+def scrape_indeed(keyword, location):
+    jobs = []
     try:
+        print(f"🔍 Scraping Indeed for '{keyword}'...")
         formatted_keyword = keyword.replace(" ", "+")
         url = f"https://nz.indeed.com/jobs?q={formatted_keyword}&l={location.replace(' ', '+')}"
         res = requests.get(url, headers=HEADERS, timeout=10)
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, 'html.parser')
             cards = soup.find_all('div', class_='job_seen_beacon') or soup.find_all('td', class_='resultContent')
-            for card in cards[:1]:
+            for card in cards[:2]:
                 title_elem = card.find('span', id=lambda x: x and x.startswith('jobTitle')) or card.find('a', class_='jcs-JobTitle')
                 company_elem = card.find('span', class_='companyName') or card.find('span', class_='css-1h7lukg')
                 if title_elem:
@@ -108,20 +115,29 @@ def scrape_jobs_for_keyword(keyword, location):
                     href = title_elem.get('href', '')
                     link = "https://nz.indeed.com" + href if href.startswith('/') else href
                     company = company_elem.text.strip() if company_elem else "Indeed Employer"
-                    full_desc = fetch_job_description(link, "Indeed") if link else "No link"
-                    all_jobs.append({"platform": "Indeed", "title": title, "company": company, "url": link, "description": full_desc})
+                    jobs.append({
+                        "platform": "Indeed",
+                        "title": title,
+                        "company": company,
+                        "url": link,
+                        "description": title
+                    })
     except Exception as e:
-        print(f"Indeed error: {e}")
+        print(f"❌ Indeed error: {e}")
+    return jobs
 
-    # 3. LinkedIn
+# 4. LinkedIn (Requests + BeautifulSoup)
+def scrape_linkedin(keyword, location):
+    jobs = []
     try:
+        print(f"🔍 Scraping LinkedIn for '{keyword}'...")
         formatted_keyword = keyword.replace(" ", "%20")
         url = f"https://www.linkedin.com/jobs/search?keywords={formatted_keyword}&location={location.replace(' ', '%20')}"
         res = requests.get(url, headers=HEADERS, timeout=10)
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, 'html.parser')
             cards = soup.find_all('div', class_='base-card') or soup.find_all('li', class_='result-card')
-            for card in cards[:1]:
+            for card in cards[:2]:
                 title_elem = card.find('h3', class_='base-search-card__title') or card.find('a', class_='job-card-list__title')
                 company_elem = card.find('h4', class_='base-search-card__subtitle') or card.find('a', class_='job-card-container__company-name')
                 link_elem = card.find('a', class_='base-card__full-link') or card.find('a', class_='job-card-list__title')
@@ -129,15 +145,27 @@ def scrape_jobs_for_keyword(keyword, location):
                     title = title_elem.text.strip()
                     company = company_elem.text.strip() if company_elem else "LinkedIn Employer"
                     link = link_elem.get('href', '') if link_elem else ""
-                    full_desc = fetch_job_description(link, "LinkedIn") if link else "No link"
-                    all_jobs.append({"platform": "LinkedIn", "title": title, "company": company, "url": link, "description": full_desc})
+                    jobs.append({
+                        "platform": "LinkedIn",
+                        "title": title,
+                        "company": company,
+                        "url": link,
+                        "description": title
+                    })
     except Exception as e:
-        print(f"LinkedIn error: {e}")
+        print(f"❌ LinkedIn error: {e}")
+    return jobs
 
-    return all_jobs
-
+# Groq API (Llama 3) ဖြင့် CV ကို အကဲဖြတ်ခြင်း
 def evaluate_job_match(user_cv, job_description):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GOOGLE_API_KEY}"
+    if not GROQ_API_KEY:
+        return "MATCH_SCORE: N/A\nKEY_MATCHES: None\nCOVER_LETTER: Groq API Key missing."
+
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
     prompt = f"""
     You are an expert New Zealand IT career coach. Analyze this CV against the Job Description.
 
@@ -152,40 +180,31 @@ def evaluate_job_match(user_cv, job_description):
     KEY_MATCHES: [List 3 specific matching skills]
     COVER_LETTER: [Write a concise, professional cover letter tailored for this job]
     """
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    
-    max_retries = 3
-    base_delay = 20 # 429 တွေ့လျှင် ပထမဆုံး စောင့်မည့် အချိန် (စက္ကန့် ၂၀)
+    payload = {
+        "model": "llama3-70b-8192",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.7
+    }
+    try:
+        res = requests.post(url, headers=headers, json=payload, timeout=30)
+        if res.status_code == 200:
+            data = res.json()
+            return data["choices"][0]["message"]["content"]
+    except Exception as e:
+        print(f"❌ Groq evaluation error: {e}")
+    return "MATCH_SCORE: 50\nKEY_MATCHES: General\nCOVER_LETTER: Error."
 
-    for attempt in range(max_retries):
-        try:
-            res = requests.post(url, json=payload, timeout=60)
-            
-            if res.status_code == 200:
-                data = res.json()
-                try:
-                    return data["candidates"][0]["content"]["parts"][0]["text"]
-                except (KeyError, IndexError):
-                    return "MATCH_SCORE: 50\nKEY_MATCHES: General\nCOVER_LETTER: Parsing error."
-            
-            elif res.status_code == 429:
-                # Exponential Backoff (စောင့်ရမည့်အချိန်ကို တဖြည်းဖြည်း တိုးသွားခြင်း)
-                wait_time = base_delay * (2 ** attempt) + random.uniform(1, 5)
-                print(f"⚠️ Rate limit reached (429). Attempt {attempt + 1}/{max_retries}. Waiting {wait_time:.1f} seconds...")
-                time.sleep(wait_time)
-            
-            else:
-                print(f"❌ Gemini API Error: {res.status_code} - {res.text}")
-                return "MATCH_SCORE: 0\nKEY_MATCHES: None\nCOVER_LETTER: API failed."
-                
-        except Exception as e:
-            print(f"❌ Exception in evaluation: {e}")
-            return "MATCH_SCORE: 0\nKEY_MATCHES: None\nCOVER_LETTER: Timeout or error."
-            
-    return "MATCH_SCORE: N/A\nKEY_MATCHES: Rate limited permanently\nCOVER_LETTER: API limit exceeded."
+def send_telegram_message(telegram_id, message):
+    if not TELEGRAM_BOT_TOKEN: return
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": telegram_id, "text": message, "disable_web_page_preview": True}
+    try:
+        requests.post(url, json=payload, timeout=15)
+    except Exception as e:
+        print(f"❌ Telegram error: {e}")
 
-def run_worker_loop():
-    print("🚀 Resilient Job Scout Bot Started & Running...")
+async def run_worker_loop():
+    print("🚀 4-Platform Job Scout Bot (Seek Playwright + Groq) Started...")
     while True:
         try:
             conn = get_db_connection()
@@ -202,11 +221,27 @@ def run_worker_loop():
                 if not keywords: continue
                 loc = location if location else "Auckland"
 
-                print(f"🔍 Checking jobs for keyword: '{keywords}' in '{loc}'...")
-                jobs = scrape_jobs_for_keyword(keywords, loc)
-                print(f"✅ Found {len(jobs)} job postings.")
+                all_jobs = []
+                
+                # 1. Seek (Async)
+                seek_jobs = await scrape_seek(keywords, loc)
+                all_jobs.extend(seek_jobs)
+                
+                # 2. Trade Me (Sync)
+                trademe_jobs = scrape_trademe(keywords, loc)
+                all_jobs.extend(trademe_jobs)
+                
+                # 3. Indeed (Sync)
+                indeed_jobs = scrape_indeed(keywords, loc)
+                all_jobs.extend(indeed_jobs)
+                
+                # 4. LinkedIn (Sync)
+                linkedin_jobs = scrape_linkedin(keywords, loc)
+                all_jobs.extend(linkedin_jobs)
 
-                for job in jobs:
+                print(f"✅ Total found {len(all_jobs)} jobs across all platforms.")
+
+                for job in all_jobs:
                     cv_text = str(user_cv) if user_cv else "General CV"
                     analysis = evaluate_job_match(cv_text, job['description'])
                     
@@ -219,15 +254,13 @@ def run_worker_loop():
                     )
                     
                     send_telegram_message(telegram_id, message)
-                    
-                    # ပုံမှန် API ခေါ်ဆိုမှုတိုင်းအတွက် သေချာပေါက် အနားပေးခြင်း (Free Tier Limit မပြည့်စေရန်)
-                    time.sleep(15)
+                    await asyncio.sleep(3)
 
         except Exception as e:
             print(f"❌ Error in worker cycle: {e}")
 
         print("💤 Waiting for the next check cycle (60 minutes)...")
-        time.sleep(3600)
+        await asyncio.sleep(3600)
 
 if __name__ == "__main__":
-    run_worker_loop()
+    asyncio.run(run_worker_loop())
