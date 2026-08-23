@@ -23,21 +23,24 @@ HEADERS = {
 
 def send_telegram_message(telegram_id, message):
     if not TELEGRAM_BOT_TOKEN:
-        print("Error: TELEGRAM_BOT_TOKEN is missing!")
+        print("❌ Error: TELEGRAM_BOT_TOKEN is missing!")
         return None
         
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": telegram_id,
         "text": message,
-        "disable_web_page_preview": True,
-        "parse_mode": "Markdown"
+        "disable_web_page_preview": True
+        # parse_mode ကို ယာယီဖြုတ်ထားလိုက်သည် (Markdown Error ကြောင့် မက်ဆေ့ချ်မလာခြင်းကို ကာကွယ်ရန်)
     }
     try:
-        response = requests.post(url, json=payload)
+        response = requests.post(url, json=payload, timeout=15)
+        print(f"📱 Telegram API Status: {response.status_code}")
+        if response.status_code != 200:
+            print(f"❌ Telegram Error Response: {response.text}")
         return response.json()
     except Exception as e:
-        print(f"Error sending message: {e}")
+        print(f"❌ Exception in send_telegram_message: {e}")
         return None
 
 def fetch_job_description(url, platform):
@@ -66,7 +69,6 @@ def fetch_job_description(url, platform):
     except Exception as e:
         return "Detailed description fetch failed."
 
-# 1. Trade Me Scraper
 def scrape_trademe(keyword, location):
     url = f"https://www.trademe.co.nz/a/jobs/search?search_string={keyword}&region={location}"
     try:
@@ -86,9 +88,9 @@ def scrape_trademe(keyword, location):
                 })
         return jobs
     except Exception as e:
+        print(f"Trade Me error: {e}")
         return []
 
-# 2. Indeed Scraper
 def scrape_indeed(keyword, location):
     url = f"https://nz.indeed.com/jobs?q={keyword}&l={location}"
     try:
@@ -109,9 +111,9 @@ def scrape_indeed(keyword, location):
                 })
         return jobs
     except Exception as e:
+        print(f"Indeed error: {e}")
         return []
 
-# 3. LinkedIn Scraper
 def scrape_linkedin(keyword, location):
     url = f"https://www.linkedin.com/jobs/search?keywords={keyword}&location={location}"
     try:
@@ -133,6 +135,7 @@ def scrape_linkedin(keyword, location):
                 })
         return jobs
     except Exception as e:
+        print(f"LinkedIn error: {e}")
         return []
 
 def evaluate_job_match(user_cv, job_description):
@@ -172,7 +175,7 @@ def evaluate_job_match(user_cv, job_description):
         return "MATCH_SCORE: 0\nKEY_MATCHES: None\nCOVER_LETTER: Error in evaluation."
 
 def run_worker_loop():
-    print("🚀 3-Platform Multi-Scout Bot Started...")
+    print("🚀 Robust Bot Started & Running...")
     while True:
         try:
             conn = get_db_connection()
@@ -187,9 +190,9 @@ def run_worker_loop():
             for user in active_users:
                 telegram_id, keywords, location, user_cv = user
                 if not keywords: continue
-                loc = location if location else "Whanganui"
+                loc = location if location else "Auckland"
 
-                print(f"🔍 Scraping platforms for keyword: '{keywords}' in location: '{loc}'...")
+                print(f"🔍 Scraping for: '{keywords}' in '{loc}'...")
                 
                 all_jobs = []
                 all_jobs.extend(scrape_trademe(keywords, loc))
@@ -199,14 +202,16 @@ def run_worker_loop():
                 print(f"✅ Total jobs found across platforms: {len(all_jobs)}")
 
                 for job in all_jobs:
-                    analysis = evaluate_job_match(user_cv, job['description']) if user_cv else "MATCH_SCORE: 0\nKEY_MATCHES: N/A\nCOVER_LETTER: Please save your CV."
+                    cv_text = str(user_cv) if user_cv else "General CV"
+                    analysis = evaluate_job_match(cv_text, job['description'])
                     
+                    # Plain text ပုံစံသို့ ပြောင်းလဲထားသည် (Markdown Error လုံးဝကင်းစေရန်)
                     message = (
-                        f"🔥 *[{job['platform']}] New Job Match!*\n\n"
-                        f"📌 *Position:* {job['title']}\n"
-                        f"🏢 *Company:* {job['company']}\n\n"
-                        f"📋 *AI Analysis & Cover Letter:*\n{analysis}\n\n"
-                        f"🔗 [Apply Here]({job['url']})"
+                        f"🔥 [{job['platform']}] New Job Match!\n\n"
+                        f"📌 Position: {job['title']}\n"
+                        f"🏢 Company: {job['company']}\n\n"
+                        f"📋 AI Analysis & Cover Letter:\n{analysis}\n\n"
+                        f"🔗 Apply Here: {job['url']}"
                     )
                     
                     send_telegram_message(telegram_id, message)
