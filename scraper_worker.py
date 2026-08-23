@@ -51,7 +51,7 @@ def fetch_job_description(url, platform):
         desc = ""
         
         if platform == "Trade Me":
-            desc_elem = soup.find("div", class_="o-card")
+            desc_elem = soup.find("div", class_="o-card") or soup.find("div", class_="tm-property-view-details")
             if desc_elem: desc = desc_elem.get_text(separator="\n", strip=True)
         elif platform == "Indeed":
             desc_elem = soup.find("div", id="jobDescriptionText")
@@ -63,7 +63,7 @@ def fetch_job_description(url, platform):
         if not desc:
             desc = soup.get_text(separator="\n", strip=True)
             
-        return desc[:1200]  # API ပေါ့ပါးမြန်ဆန်စေရန် စာသားအရှည်ကို သင့်တော်ရုံ ကန့်သတ်ထားသည်
+        return desc[:1200]
     except Exception as e:
         return "Detailed description fetch failed."
 
@@ -72,15 +72,19 @@ def scrape_jobs_for_keyword(keyword, location):
     
     # 1. Trade Me
     try:
-        url = f"https://www.trademe.co.nz/a/jobs/search?search_string={keyword}&region={location}"
+        formatted_keyword = keyword.replace(" ", "%20")
+        url = f"https://www.trademe.co.nz/a/jobs/search?search_string={formatted_keyword}"
         res = requests.get(url, headers=HEADERS, timeout=10)
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, 'html.parser')
-            for card in soup.find_all('tg-card')[:2] or soup.find_all('div', class_='o-card')[:2]:
-                title_elem = card.find('a')
+            cards = soup.find_all('a', class_='o-card') or soup.find_all('div', class_='tm-search-card-list-listing-wrap')
+            for card in cards[:2]:
+                title_elem = card.find('h3') or card.find('span', class_='tm-search-card-list-listing-title')
+                if not title_elem and card.name == 'a':
+                    title_elem = card
                 if title_elem:
                     title = title_elem.text.strip()
-                    href = title_elem.get('href', '')
+                    href = card.get('href', '') if card.name == 'a' else card.find('a').get('href', '')
                     link = "https://www.trademe.co.nz" + href if href.startswith('/') else href
                     full_desc = fetch_job_description(link, "Trade Me")
                     all_jobs.append({"platform": "Trade Me", "title": title, "company": "Trade Me Employer", "url": link, "description": full_desc})
@@ -89,21 +93,45 @@ def scrape_jobs_for_keyword(keyword, location):
 
     # 2. Indeed
     try:
-        url = f"https://nz.indeed.com/jobs?q={keyword}&l={location}"
+        formatted_keyword = keyword.replace(" ", "+")
+        url = f"https://nz.indeed.com/jobs?q={formatted_keyword}&l={location.replace(' ', '+')}"
         res = requests.get(url, headers=HEADERS, timeout=10)
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, 'html.parser')
-            for card in soup.find_all('div', class_='job_seen_beacon')[:2]:
+            cards = soup.find_all('div', class_='job_seen_beacon') or soup.find_all('td', class_='resultContent')
+            for card in cards[:2]:
                 title_elem = card.find('span', id=lambda x: x and x.startswith('jobTitle')) or card.find('a', class_='jcs-JobTitle')
-                company_elem = card.find('span', class_='companyName')
+                company_elem = card.find('span', class_='companyName') or card.find('span', class_='css-1h7lukg')
                 if title_elem:
                     title = title_elem.text.strip()
-                    link = "https://nz.indeed.com" + title_elem.get('href', '') if title_elem.name == 'a' else ""
+                    href = title_elem.get('href', '')
+                    link = "https://nz.indeed.com" + href if href.startswith('/') else href
                     company = company_elem.text.strip() if company_elem else "Indeed Employer"
                     full_desc = fetch_job_description(link, "Indeed") if link else "No link"
                     all_jobs.append({"platform": "Indeed", "title": title, "company": company, "url": link, "description": full_desc})
     except Exception as e:
         print(f"Indeed error: {e}")
+
+    # 3. LinkedIn (ထည့်သွင်းပေးလိုက်သည်)
+    try:
+        formatted_keyword = keyword.replace(" ", "%20")
+        url = f"https://www.linkedin.com/jobs/search?keywords={formatted_keyword}&location={location.replace(' ', '%20')}"
+        res = requests.get(url, headers=HEADERS, timeout=10)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
+            cards = soup.find_all('div', class_='base-card') or soup.find_all('li', class_='result-card')
+            for card in cards[:2]:
+                title_elem = card.find('h3', class_='base-search-card__title') or card.find('a', class_='job-card-list__title')
+                company_elem = card.find('h4', class_='base-search-card__subtitle') or card.find('a', class_='job-card-container__company-name')
+                link_elem = card.find('a', class_='base-card__full-link') or card.find('a', class_='job-card-list__title')
+                if title_elem:
+                    title = title_elem.text.strip()
+                    company = company_elem.text.strip() if company_elem else "LinkedIn Employer"
+                    link = link_elem.get('href', '') if link_elem else ""
+                    full_desc = fetch_job_description(link, "LinkedIn") if link else "No link"
+                    all_jobs.append({"platform": "LinkedIn", "title": title, "company": company, "url": link, "description": full_desc})
+    except Exception as e:
+        print(f"LinkedIn error: {e}")
 
     return all_jobs
 
@@ -142,7 +170,7 @@ def evaluate_job_match(user_cv, job_description):
         return "MATCH_SCORE: 0\nKEY_MATCHES: None\nCOVER_LETTER: Timeout or error."
 
 def run_worker_loop():
-    print("🚀 Optimized Job Scout Bot Started & Running...")
+    print("🚀 Complete Job Scout Bot (TradeMe, Indeed, LinkedIn) Started & Running...")
     while True:
         try:
             conn = get_db_connection()
@@ -164,8 +192,6 @@ def run_worker_loop():
                 print(f"✅ Found {len(jobs)} job postings.")
 
                 for job in jobs:
-                    # Database တွင် ဤအလုပ်လင့်ခ်ကို ယခင်က ပို့ပြီးသားဟုတ်မဟုတ် စစ်ဆေးရန် (Optional table cache check)
-                    # ယခုလက်ရှိအတွက် AI Evaluation ကို တိုက်ရိုက်လုပ်ဆောင်သည်
                     cv_text = str(user_cv) if user_cv else "General CV"
                     analysis = evaluate_job_match(cv_text, job['description'])
                     
