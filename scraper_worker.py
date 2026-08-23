@@ -63,7 +63,8 @@ def fetch_job_description(url, platform):
         if not desc:
             desc = soup.get_text(separator="\n", strip=True)
             
-        return desc[:1200]
+        # Timeout လုံးဝမဖြစ်စေရန် စာသားအရှည်ကို အတိုဆုံး (800 characters) သို့ ကန့်သတ်ခြင်း
+        return desc[:800]
     except Exception as e:
         return "Detailed description fetch failed."
 
@@ -112,7 +113,7 @@ def scrape_jobs_for_keyword(keyword, location):
     except Exception as e:
         print(f"Indeed error: {e}")
 
-    # 3. LinkedIn (ထည့်သွင်းပေးလိုက်သည်)
+    # 3. LinkedIn
     try:
         formatted_keyword = keyword.replace(" ", "%20")
         url = f"https://www.linkedin.com/jobs/search?keywords={formatted_keyword}&location={location.replace(' ', '%20')}"
@@ -139,8 +140,7 @@ def evaluate_job_match(user_cv, job_description):
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GOOGLE_API_KEY}"
         prompt = f"""
-        You are an expert New Zealand IT career coach and professional recruiter. 
-        Analyze the candidate's CV against the Job Description below.
+        You are an expert New Zealand IT career coach. Analyze this CV against the Job Description.
 
         Candidate CV:
         {user_cv}
@@ -154,7 +154,8 @@ def evaluate_job_match(user_cv, job_description):
         COVER_LETTER: [Write a concise, professional cover letter tailored for this job]
         """
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        res = requests.post(url, json=payload, timeout=45)
+        # Timeout ကို စက္ကန့် ၉၀ သို့ တိုးမြှင့်ထားသည်
+        res = requests.post(url, json=payload, timeout=90)
         
         if res.status_code == 200:
             data = res.json()
