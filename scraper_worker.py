@@ -16,10 +16,19 @@ def get_db_connection():
 GOOGLE_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
+# ပိုမိုစစ်မှန်သော Browser တစ်ခုကဲ့သို့ ဟန်ဆောင်ရန် Headers များကို မြှင့်တင်ထားခြင်း
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.5"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Cache-Control": "max-age=0"
 }
 
 def send_telegram_message(telegram_id, message):
@@ -31,12 +40,10 @@ def send_telegram_message(telegram_id, message):
     payload = {
         "chat_id": telegram_id,
         "text": message,
-        # Markdown error ကြောင့် မဝင်တာမျိုး မဖြစ်စေရန် parse_mode ကို ခဏဖြုတ်ထားသည်
         "disable_web_page_preview": True
     }
     try:
         response = requests.post(url, json=payload)
-        print(f" Telegram API raw response: {response.text}")
         return response.json()
     except Exception as e:
         print(f"Error sending message: {e}")
@@ -69,9 +76,14 @@ def scrape_seek(keyword, location):
     url = f"https://www.seek.co.nz/{formatted_kw}-jobs/in-{formatted_loc}"
     print(f"🌐 Scraping URL: {url}")
     try:
-        res = requests.get(url, headers=HEADERS, timeout=10)
+        # Seek က Bot တွေကို ချက်ချင်းမသိအောင် Session တစ်ခုအသုံးပြုခြင်း
+        session = requests.Session()
+        res = session.get(url, headers=HEADERS, timeout=15)
         print(f"🌐 Seek Response Status: {res.status_code}")
-        if res.status_code != 200: return []
+        
+        if res.status_code != 200: 
+            print(f"⚠️ Blocked or page unavailable. Status: {res.status_code}")
+            return []
         
         soup = BeautifulSoup(res.text, 'html.parser')
         jobs = []
@@ -127,13 +139,10 @@ def evaluate_job_match(user_cv, job_description):
             try:
                 return data["candidates"][0]["content"]["parts"][0]["text"]
             except (KeyError, IndexError) as parse_err:
-                print(f"JSON Parse Error: {parse_err}, Response: {data}")
                 return "MATCH_SCORE: 50\nKEY_MATCHES: General Skills\nCOVER_LETTER: Generated analysis structure was unexpected."
         else:
-            print(f"API Error Response Status {res.status_code}: {res.text}")
             return "MATCH_SCORE: 0\nKEY_MATCHES: None\nCOVER_LETTER: Unable to generate due to API connection issue."
     except Exception as e:
-        print(f"AI Matcher Error: {e}")
         return "MATCH_SCORE: 0\nKEY_MATCHES: None\nCOVER_LETTER: Unable to generate due to exception."
 
 def run_worker_loop():
