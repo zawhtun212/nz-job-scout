@@ -31,11 +31,12 @@ def send_telegram_message(telegram_id, message):
     payload = {
         "chat_id": telegram_id,
         "text": message,
-        "parse_mode": "Markdown",
+        # Markdown error ကြောင့် မဝင်တာမျိုး မဖြစ်စေရန် parse_mode ကို ခဏဖြုတ်ထားသည်
         "disable_web_page_preview": True
     }
     try:
         response = requests.post(url, json=payload)
+        print(f" Telegram API raw response: {response.text}")
         return response.json()
     except Exception as e:
         print(f"Error sending message: {e}")
@@ -53,16 +54,7 @@ def fetch_job_description(url, platform):
         if platform == "Seek":
             desc_elem = soup.find("div", {"data-automation": "jobAdDetails"})
             if desc_elem: desc = desc_elem.get_text(separator="\n", strip=True)
-        elif platform == "Trade Me":
-            desc_elem = soup.find("div", class_="o-card") or soup.find("tm-property-view-detailed-attributes")
-            if desc_elem: desc = desc_elem.get_text(separator="\n", strip=True)
-        elif platform == "Indeed":
-            desc_elem = soup.find("div", id="jobDescriptionText")
-            if desc_elem: desc = desc_elem.get_text(separator="\n", strip=True)
-        elif platform == "LinkedIn":
-            desc_elem = soup.find("div", class_="show-more-less-html__markup")
-            if desc_elem: desc = desc_elem.get_text(separator="\n", strip=True)
-            
+        
         if not desc:
             desc = soup.get_text(separator="\n", strip=True)[:3000]
             
@@ -75,12 +67,18 @@ def scrape_seek(keyword, location):
     formatted_kw = keyword.replace(" ", "-").lower()
     formatted_loc = location.replace(" ", "-").lower()
     url = f"https://www.seek.co.nz/{formatted_kw}-jobs/in-{formatted_loc}"
+    print(f"🌐 Scraping URL: {url}")
     try:
         res = requests.get(url, headers=HEADERS, timeout=10)
+        print(f"🌐 Seek Response Status: {res.status_code}")
         if res.status_code != 200: return []
+        
         soup = BeautifulSoup(res.text, 'html.parser')
         jobs = []
-        for card in soup.find_all('article')[:2]:
+        articles = soup.find_all('article')
+        print(f"📦 Found {len(articles)} article cards on Seek page.")
+        
+        for card in articles[:2]:
             title_elem = card.find('a', {'data-automation': 'jobTitle'}) or card.find('a', {'data-type': 'job-title'}) or card.find('a')
             company_elem = card.find('a', {'data-automation': 'jobCompany'}) or card.find('a', {'data-type': 'company-name'})
             if title_elem and title_elem.text:
@@ -89,7 +87,7 @@ def scrape_seek(keyword, location):
                 link = "https://www.seek.co.nz" + href.split('?')[0] if href.startswith('/') else href
                 company = company_elem.text.strip() if company_elem else "Direct Employer"
                 
-                print(f"🔗 Fetching full details for Seek job: {title}")
+                print(f"🔗 Found Job -> Title: {title} | Company: {company}")
                 full_desc = fetch_job_description(link, "Seek")
                 jobs.append({
                     "platform": "Seek", "title": title, "company": company, "url": link, "description": full_desc
@@ -101,8 +99,7 @@ def scrape_seek(keyword, location):
 
 def evaluate_job_match(user_cv, job_description):
     try:
-        # အရင်လို အသေးစိတ် ရလဒ်ကောင်းတွေ ထွက်စေရန် gemini-3.6-flash ကို သုံးထားသည်
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GOOGLE_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GOOGLE_API_KEY}"
         prompt = f"""
         You are an expert New Zealand IT career coach and professional recruiter. 
         Carefully analyze the candidate's CV against the full Job Description below.
@@ -113,10 +110,10 @@ def evaluate_job_match(user_cv, job_description):
         Full Job Description:
         {job_description}
 
-        Provide your detailed analysis strictly in the following readable format:
+        Provide your detailed analysis strictly in the following readable plain text format:
         MATCH_SCORE: [Provide an accurate percentage score from 0 to 100 based on skill relevance]
         KEY_MATCHES: [List 3-4 specific matching skills found in both CV and Job Description]
-        COVER_LETTER: [Write a comprehensive, highly professional, tailored cover letter for this specific New Zealand job opening, complete with an introduction, body paragraphs highlighting relevant experience, and a strong conclusion ready to send]
+        COVER_LETTER: [Write a comprehensive, highly professional, tailored cover letter for this specific New Zealand job opening]
         """
         payload = {
             "contents": [{
@@ -159,16 +156,17 @@ def run_worker_loop():
 
                 print(f"🔍 Scraping jobs for keyword: '{keywords}' in location: '{loc}'...")
                 all_jobs = scrape_seek(keywords, loc)
+                print(f"✅ Total scraped jobs to process: {len(all_jobs)}")
 
                 for job in all_jobs:
                     analysis = evaluate_job_match(user_cv, job['description']) if user_cv else "MATCH_SCORE: 0\nKEY_MATCHES: N/A\nCOVER_LETTER: Please save your CV profile first."
                     
                     message = (
-                        f"🔥 *[{job['platform']}] New Job Match!*\n\n"
-                        f"📌 *Position:* {job['title']}\n"
-                        f"🏢 *Company:* {job['company']}\n\n"
-                        f"📋 *AI Analysis & Cover Letter:*\n{analysis}\n\n"
-                        f"🔗 [Apply Here]({job['url']})"
+                        f"[{job['platform']}] New Job Match!\n\n"
+                        f"Position: {job['title']}\n"
+                        f"Company: {job['company']}\n\n"
+                        f"Analysis & Cover Letter:\n{analysis}\n\n"
+                        f"Apply Here: {job['url']}"
                     )
                     
                     telegram_res = send_telegram_message(telegram_id, message)
