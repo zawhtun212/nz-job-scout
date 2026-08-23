@@ -11,3 +11,4 @@ gunicorn
 beautifulsoup4
 APScheduler
 supabase
+curl-cffi
