@@ -63,7 +63,6 @@ def fetch_job_description(url, platform):
         if not desc:
             desc = soup.get_text(separator="\n", strip=True)
             
-        # Timeout လုံးဝမဖြစ်စေရန် စာသားအရှည်ကို အတိုဆုံး (800 characters) သို့ ကန့်သတ်ခြင်း
         return desc[:800]
     except Exception as e:
         return "Detailed description fetch failed."
@@ -79,7 +78,7 @@ def scrape_jobs_for_keyword(keyword, location):
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, 'html.parser')
             cards = soup.find_all('a', class_='o-card') or soup.find_all('div', class_='tm-search-card-list-listing-wrap')
-            for card in cards[:2]:
+            for card in cards[:1]:  # Rate limit ရှောင်ရှားရန် တစ်ပလက်ဖောင်းလျှင် အလုပ် ၁ ခုစီသာ Scrape လုပ်ရန် ညှိထားသည်
                 title_elem = card.find('h3') or card.find('span', class_='tm-search-card-list-listing-title')
                 if not title_elem and card.name == 'a':
                     title_elem = card
@@ -100,7 +99,7 @@ def scrape_jobs_for_keyword(keyword, location):
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, 'html.parser')
             cards = soup.find_all('div', class_='job_seen_beacon') or soup.find_all('td', class_='resultContent')
-            for card in cards[:2]:
+            for card in cards[:1]:
                 title_elem = card.find('span', id=lambda x: x and x.startswith('jobTitle')) or card.find('a', class_='jcs-JobTitle')
                 company_elem = card.find('span', class_='companyName') or card.find('span', class_='css-1h7lukg')
                 if title_elem:
@@ -121,7 +120,7 @@ def scrape_jobs_for_keyword(keyword, location):
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, 'html.parser')
             cards = soup.find_all('div', class_='base-card') or soup.find_all('li', class_='result-card')
-            for card in cards[:2]:
+            for card in cards[:1]:
                 title_elem = card.find('h3', class_='base-search-card__title') or card.find('a', class_='job-card-list__title')
                 company_elem = card.find('h4', class_='base-search-card__subtitle') or card.find('a', class_='job-card-container__company-name')
                 link_elem = card.find('a', class_='base-card__full-link') or card.find('a', class_='job-card-list__title')
@@ -154,8 +153,7 @@ def evaluate_job_match(user_cv, job_description):
         COVER_LETTER: [Write a concise, professional cover letter tailored for this job]
         """
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        # Timeout ကို စက္ကန့် ၉၀ သို့ တိုးမြှင့်ထားသည်
-        res = requests.post(url, json=payload, timeout=90)
+        res = requests.post(url, json=payload, timeout=60)
         
         if res.status_code == 200:
             data = res.json()
@@ -163,15 +161,19 @@ def evaluate_job_match(user_cv, job_description):
                 return data["candidates"][0]["content"]["parts"][0]["text"]
             except (KeyError, IndexError):
                 return "MATCH_SCORE: 50\nKEY_MATCHES: General\nCOVER_LETTER: Parsing error."
+        elif res.status_code == 429:
+            print("⚠️ Rate limit reached (429). Waiting 15 seconds...")
+            time.sleep(15)
+            return "MATCH_SCORE: N/A\nKEY_MATCHES: Rate limited\nCOVER_LETTER: Temporarily limited."
         else:
-            print(f"❌ Gemini API Error: {res.status_code}")
+            print(f"❌ Gemini API Error: {res.status_code} - {res.text}")
             return "MATCH_SCORE: 0\nKEY_MATCHES: None\nCOVER_LETTER: API failed."
     except Exception as e:
         print(f"❌ Exception in evaluation: {e}")
         return "MATCH_SCORE: 0\nKEY_MATCHES: None\nCOVER_LETTER: Timeout or error."
 
 def run_worker_loop():
-    print("🚀 Complete Job Scout Bot (TradeMe, Indeed, LinkedIn) Started & Running...")
+    print("🚀 Rate-Limited Job Scout Bot Started & Running...")
     while True:
         try:
             conn = get_db_connection()
@@ -205,7 +207,8 @@ def run_worker_loop():
                     )
                     
                     send_telegram_message(telegram_id, message)
-                    time.sleep(2)
+                    # API 429 Error မတက်စေရန် တစ်ခုနှင့်တစ်ခု အတောအသင့် အချိန်ခြားပေးခြင်း (10 seconds)
+                    time.sleep(10)
 
         except Exception as e:
             print(f"❌ Error in worker cycle: {e}")
