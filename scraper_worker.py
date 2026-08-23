@@ -49,10 +49,7 @@ def fetch_job_description(url, platform):
         soup = BeautifulSoup(res.text, "html.parser")
         desc = ""
         
-        if platform == "Seek":
-            desc_elem = soup.find("div", {"data-automation": "jobAdDetails"})
-            if desc_elem: desc = desc_elem.get_text(separator="\n", strip=True)
-        elif platform == "Trade Me":
+        if platform == "Trade Me":
             desc_elem = soup.find("div", class_="o-card")
             if desc_elem: desc = desc_elem.get_text(separator="\n", strip=True)
         elif platform == "Indeed":
@@ -69,44 +66,7 @@ def fetch_job_description(url, platform):
     except Exception as e:
         return "Detailed description fetch failed."
 
-# 1. Seek API Scraper
-def scrape_seek(keyword, location):
-    formatted_kw = keyword.replace(" ", "-").lower()
-    formatted_loc = location.replace(" ", "-").lower()
-    print(f"🌐 Scraping Seek API for: {keyword} in {location}")
-    try:
-        api_url = f"https://www.seek.co.nz/api/jobsearch/v5/search?siteKey=NZ-JSM&where={formatted_loc}&keywords={formatted_kw}&page=1"
-        api_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-            "Accept": "application/json",
-            "X-Client-Feature-Flags": "multilocation",
-            "Referer": "https://www.seek.co.nz/"
-        }
-        res = requests.get(api_url, headers=api_headers, timeout=10)
-        print(f"🌐 Seek API Response Status: {res.status_code}")
-        
-        if res.status_code != 200:
-            return []
-            
-        data = res.json()
-        jobs = []
-        
-        for item in data.get("data", [])[:2]:
-            title = item.get("title", "No Title")
-            company = item.get("advertiser", {}).get("description", "Direct Employer")
-            job_id = item.get("id")
-            link = f"https://www.seek.co.nz/job/{job_id}" if job_id else "https://www.seek.co.nz"
-            abstract = item.get("teaser", "No description provided.")
-            
-            jobs.append({
-                "platform": "Seek", "title": title, "company": company, "url": link, "description": abstract
-            })
-        return jobs
-    except Exception as e:
-        print(f"Seek API error: {e}")
-        return []
-
-# 2. Trade Me Scraper
+# 1. Trade Me Scraper
 def scrape_trademe(keyword, location):
     url = f"https://www.trademe.co.nz/a/jobs/search?search_string={keyword}&region={location}"
     try:
@@ -128,7 +88,7 @@ def scrape_trademe(keyword, location):
     except Exception as e:
         return []
 
-# 3. Indeed Scraper
+# 2. Indeed Scraper
 def scrape_indeed(keyword, location):
     url = f"https://nz.indeed.com/jobs?q={keyword}&l={location}"
     try:
@@ -151,7 +111,7 @@ def scrape_indeed(keyword, location):
     except Exception as e:
         return []
 
-# 4. LinkedIn Scraper
+# 3. LinkedIn Scraper
 def scrape_linkedin(keyword, location):
     url = f"https://www.linkedin.com/jobs/search?keywords={keyword}&location={location}"
     try:
@@ -212,7 +172,7 @@ def evaluate_job_match(user_cv, job_description):
         return "MATCH_SCORE: 0\nKEY_MATCHES: None\nCOVER_LETTER: Error in evaluation."
 
 def run_worker_loop():
-    print("🚀 4-Platform Multi-Scout Bot Started...")
+    print("🚀 3-Platform Multi-Scout Bot Started...")
     while True:
         try:
             conn = get_db_connection()
@@ -229,15 +189,14 @@ def run_worker_loop():
                 if not keywords: continue
                 loc = location if location else "Whanganui"
 
-                print(f"🔍 Scraping all platforms for keyword: '{keywords}' in location: '{loc}'...")
+                print(f"🔍 Scraping platforms for keyword: '{keywords}' in location: '{loc}'...")
                 
                 all_jobs = []
-                all_jobs.extend(scrape_seek(keywords, loc))
                 all_jobs.extend(scrape_trademe(keywords, loc))
                 all_jobs.extend(scrape_indeed(keywords, loc))
                 all_jobs.extend(scrape_linkedin(keywords, loc))
                 
-                print(f"✅ Total jobs found across 4 platforms: {len(all_jobs)}")
+                print(f"✅ Total jobs found across platforms: {len(all_jobs)}")
 
                 for job in all_jobs:
                     analysis = evaluate_job_match(user_cv, job['description']) if user_cv else "MATCH_SCORE: 0\nKEY_MATCHES: N/A\nCOVER_LETTER: Please save your CV."
